@@ -22,7 +22,7 @@ NC = \033[0m # No Color
 .PHONY: all test test-unit test-integration test-manual install clean check-api-key setup help lint info
 
 # Default target
-all: test
+all: help
 
 # Help target
 help:

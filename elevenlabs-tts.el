@@ -100,7 +100,7 @@ Get an API key at https://elevenlabs.io/"
 
 (defun elevenlabs-tts--get-next-filename (base-path base-name)
   "Get the next sequential filename in BASE-PATH with BASE-NAME.
-Returns a filename like \='basename-01.mp3\=', \='basename-02.mp3\=', etc."
+Returns a filename like \\='basename-01.mp3\\=', \\='basename-02.mp3\\=', etc."
   (let ((counter 1)
         (filename))
     (while (progn
@@ -112,7 +112,7 @@ Returns a filename like \='basename-01.mp3\=', \='basename-02.mp3\=', etc."
     filename))
 
 (defun elevenlabs-tts--get-buffer-directory ()
-  "Get the directory of the current buffer, or default directory if buffer has no file."
+  "Get the directory of the current buffer, or default directory if no file."
   (if buffer-file-name
       (file-name-directory buffer-file-name)
     default-directory))
@@ -142,12 +142,10 @@ Save result to FILENAME and return success status."
                (voice_settings . ,elevenlabs-tts-default-settings))))
            (response-buffer))
       
-      (condition-case err
+      (condition-case error-data
           (progn
             (message "Making request to ElevenLabs API...")
-            (message "Making request URL: %s" url)
             (setq response-buffer (url-retrieve-synchronously url t nil 30))
-            (message "Making request returned: %s" response-buffer)
             
             (if response-buffer
                 (with-current-buffer response-buffer
@@ -193,18 +191,18 @@ Save result to FILENAME and return success status."
                     (progn
                       (kill-buffer response-buffer)
                       (message "❌ Invalid HTTP response format")
-                      nil)))
+                      nil))))
               (progn
                 (message "❌ Failed to retrieve response from API")
                 nil)))
         (error
          (when response-buffer (kill-buffer response-buffer))
-         (message "❌ API request error: %s" (error-message-string err))
-         nil))))))
+         (message "❌ API request error: %s" (error-message-string error-data))
+         nil)))))
 
 
 (defun elevenlabs-tts--select-voice (gender)
-  "Select a voice based on GENDER ('male or 'female)."
+  "Select a voice based on GENDER (\='male or \='female)."
   (let* ((voice-list (if (eq gender 'male)
                         elevenlabs-tts-male-voices
                       elevenlabs-tts-female-voices))
@@ -216,7 +214,7 @@ Save result to FILENAME and return success status."
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection ()
   "Convert selected text to speech using ElevenLabs API.
-Interactive workflow: select voice, confirm/edit output path, then generate audio."
+Interactive workflow: select voice, confirm/edit output path, generate audio."
   (interactive)
   (if (not (use-region-p))
       (message "Please select some text first")
@@ -248,7 +246,7 @@ Interactive workflow: select voice, confirm/edit output path, then generate audi
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection-quick (gender)
   "Quick text-to-speech with predetermined GENDER voice.
-GENDER should be 'male or 'female."
+GENDER should be \='male or \='female."
   (interactive 
    (list (intern (completing-read "Select gender: " '("male" "female") nil t))))
   (if (not (use-region-p))
