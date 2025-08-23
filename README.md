@@ -23,18 +23,21 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 ### Setup Instructions
 
-1. **Clone this repository** to your Emacs configuration directory:
+1. **Clone this repository** and install:
    ```bash
-   cd ~/.emacs.d/
    git clone https://github.com/sa6mwa/emacs-tts.git
+   cd emacs-tts
+   make install
    ```
 
-2. **Set up your API key**:
+   This will:
+   - Set up the API key configuration directory
+   - Install the package to `~/.emacs.d/emacs-tts`
+   - Display setup instructions
+
+2. **Add your API key** to the created file:
    ```bash
-   # Create config directory
-   mkdir -p ~/.config/emacs-tts
-   
-   # Create API key file with your actual key
+   # Add your actual API key to the config file
    echo "your_actual_api_key_here" > ~/.config/emacs-tts/elevenlabs-api-key
    ```
 
