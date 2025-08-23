@@ -133,13 +133,16 @@ Save result to FILENAME and return success status."
     (let* ((url (format "%s/text-to-speech/%s" elevenlabs-tts-api-base-url voice-id))
            (url-request-method "POST")
            (url-request-extra-headers
-            `(("Content-Type" . "application/json")
+            `(("Content-Type" . "application/json; charset=utf-8")
               ("xi-api-key" . ,api-key)))
+           ;; Ensure proper UTF-8 encoding for multibyte text
            (url-request-data
-            (json-encode
-             `((text . ,text)
-               (model_id . "eleven_monolingual_v1")
-               (voice_settings . ,elevenlabs-tts-default-settings))))
+            (encode-coding-string
+             (json-encode
+              `((text . ,text)
+                (model_id . "eleven_monolingual_v1")
+                (voice_settings . ,elevenlabs-tts-default-settings)))
+             'utf-8))
            (response-buffer))
       
       (condition-case error-data
