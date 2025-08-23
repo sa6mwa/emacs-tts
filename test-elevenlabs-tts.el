@@ -16,10 +16,7 @@
 
 ;;; Unit Tests
 
-;; NOTE: For multibyte text encoding regression test:
-;; The fix for "Multibyte text in HTTP request" error is tested implicitly
-;; by the integration tests, which should work with Unicode characters.
-;; The fix uses encode-coding-string with 'utf-8 to ensure proper encoding.
+;; Regression tests for curl functionality and multibyte text handling
 
 (ert-deftest test-elevenlabs-tts-get-voice-id ()
   "Test that voice ID lookup works for known voices."
@@ -69,6 +66,37 @@
   "Test that API key file path is set correctly."
   (should (stringp elevenlabs-tts-api-key-file))
   (should (string-match "elevenlabs-api-key$" elevenlabs-tts-api-key-file)))
+
+;;; Regression test for directory creation (curl exit code 23 fix)
+
+(ert-deftest test-elevenlabs-tts-curl-creates-output-directory ()
+  "Test that curl function creates output directory before writing (stubbed)."
+  (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
+         (tmp-root (make-temp-file "tts-curl-" t))
+         (nested-dir (expand-file-name "a/b/c" tmp-root))
+         (out-file (expand-file-name "result.mp3" nested-dir)))
+    (unwind-protect
+        (progn
+          (should voice-id)
+          ;; Stub call-process to simulate successful curl
+          (cl-letf (((symbol-function 'call-process)
+                     (lambda (program infile buffer display &rest args)
+                       ;; Extract output filename after "-o"
+                       (let* ((o-index (cl-position "-o" args :test #'string=))
+                              (ofile (and o-index (nth (1+ o-index) args))))
+                         (when ofile
+                           (with-temp-file ofile
+                             (insert (make-string 256 ?X))))
+                         0))))
+            (let ((result (elevenlabs-tts--make-curl-request voice-id
+                                                             "Test text"
+                                                             out-file
+                                                             "DUMMY-KEY")))
+              (should result)
+              (should (file-exists-p out-file))
+              (should (file-directory-p nested-dir)))))
+      (when (file-exists-p tmp-root) 
+        (delete-directory tmp-root t)))))
 
 ;;; Integration Tests (require API key)
 

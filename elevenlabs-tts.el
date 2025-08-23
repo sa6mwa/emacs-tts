@@ -151,6 +151,13 @@ Save result to FILENAME and return success status."
          (temp-json-file (make-temp-file "tts-json-" nil ".json"))
          (temp-output (make-temp-file "tts-output-"))
          (exit-code))
+    
+    ;; Ensure output directory exists before curl writes to it
+    (let ((output-dir (file-name-directory filename)))
+      (when output-dir
+        (unless (file-exists-p output-dir)
+          (make-directory output-dir t))))
+    
     (unwind-protect
         (progn
           ;; Write JSON payload to temp file with proper UTF-8 encoding
@@ -196,11 +203,22 @@ Save result to FILENAME and return success status."
                              " (enable elevenlabs-tts-debug for details)"))
                   nil)))
              (t
-              (message "❌ Curl request failed with exit code: %d%s" exit-code
-                       (if elevenlabs-tts-debug
-                           (format ". Output: %s" curl-output)
-                         " (enable elevenlabs-tts-debug for details)"))
-              nil))))
+              (let ((error-msg (cond
+                               ((= exit-code 1) "Unsupported protocol or curl build issue")
+                               ((= exit-code 2) "Failed to initialize curl")
+                               ((= exit-code 3) "URL malformed")
+                               ((= exit-code 6) "Couldn't resolve host (check internet connection)")
+                               ((= exit-code 7) "Failed to connect to server")
+                               ((= exit-code 22) "HTTP error (400+ status code)")
+                               ((= exit-code 23) "Write error (couldn't write to output file)")
+                               ((= exit-code 26) "Read error")
+                               ((= exit-code 28) "Timeout")
+                               (t (format "Unknown curl error (code %d)" exit-code)))))
+                (message "❌ Curl request failed: %s%s" error-msg
+                         (if elevenlabs-tts-debug
+                             (format ". Output: %s" curl-output)
+                           " (enable elevenlabs-tts-debug for details)"))
+                nil)))))
       ;; Cleanup temp files
       (when (file-exists-p temp-json-file)
         (delete-file temp-json-file))
