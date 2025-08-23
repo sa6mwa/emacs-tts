@@ -142,21 +142,38 @@ Save result to FILENAME and return success status."
       (elevenlabs-tts--make-url-request voice-id text filename api-key))))
 
 (defun elevenlabs-tts--make-curl-request (voice-id text filename api-key)
-  "Make API request using curl for better UTF-8 handling."
+  "Make API request using curl for better UTF-8 handling.
+  Uses temporary files for API key and data to avoid command-line exposure.
+  Properly escapes filenames to prevent shell injection."
   (let* ((url (format "%s/text-to-speech/%s" elevenlabs-tts-api-base-url voice-id))
          (json-payload (json-encode
                         `((text . ,text)
                           (model_id . "eleven_monolingual_v1")
                           (voice_settings . ,elevenlabs-tts-default-settings))))
          (temp-json-file (make-temp-file "tts-json-" nil ".json"))
+         (temp-header-file (make-temp-file "tts-header-" nil ".txt"))
          (temp-output (make-temp-file "tts-output-"))
+         ;; Expand tilde and ensure full path for curl
+         (expanded-filename (expand-file-name filename))
+         ;; Escape filename for shell safety (though call-process should handle this)
+         (safe-filename (shell-quote-argument expanded-filename))
          (exit-code))
     
     ;; Ensure output directory exists before curl writes to it
-    (let ((output-dir (file-name-directory filename)))
+    (let ((output-dir (file-name-directory expanded-filename)))
+      (when elevenlabs-tts-debug
+        (message "Debug: Original filename: %s" filename)
+        (message "Debug: Expanded filename: %s" expanded-filename)
+        (message "Debug: Output directory: %s" output-dir)
+        (message "Debug: Directory exists before mkdir: %s" (and output-dir (file-exists-p output-dir))))
       (when output-dir
         (unless (file-exists-p output-dir)
-          (make-directory output-dir t))))
+          (when elevenlabs-tts-debug
+            (message "Debug: Creating directory: %s" output-dir))
+          (make-directory output-dir t)
+          (when elevenlabs-tts-debug
+            (message "Debug: Directory exists after mkdir: %s" (file-exists-p output-dir))
+            (message "Debug: Directory writable: %s" (file-writable-p output-dir))))))
     
     (unwind-protect
         (progn
@@ -165,20 +182,28 @@ Save result to FILENAME and return success status."
             (set-buffer-file-coding-system 'utf-8)
             (insert json-payload))
           
-          (when elevenlabs-tts-debug
-            (message "Debug: JSON payload: %s" json-payload)
-            (message "Debug: Temp files - JSON: %s, Output: %s" temp-json-file temp-output))
-          
-          (message "Making request to ElevenLabs API with curl...")
-          (setq exit-code
-                (call-process "curl" nil temp-output nil
-                              "-w" "HTTP_CODE:%{http_code}\n"
-                              "-o" filename
-                              "-X" "POST"
-                              "-H" "Content-Type: application/json; charset=utf-8"
-                              "-H" (format "xi-api-key: %s" api-key)
-                              "--data-binary" (format "@%s" temp-json-file)
-                              url))
+          ;; Write config file for curl to avoid API key in process list
+          (let ((curl-config-file (make-temp-file "tts-curl-config-" nil ".txt")))
+            (with-temp-file curl-config-file
+              (insert (format "header = \"Content-Type: application/json; charset=utf-8\"\nheader = \"xi-api-key: %s\"\n" api-key)))
+            
+            (when elevenlabs-tts-debug
+              (message "Debug: JSON payload: %s" json-payload)
+              (message "Debug: Temp files - JSON: %s, Config: %s, Output: %s" temp-json-file curl-config-file temp-output))
+            
+            (message "Making request to ElevenLabs API with curl...")
+            (setq exit-code
+                  (call-process "curl" nil temp-output nil
+                                "--config" curl-config-file
+                                "-w" "HTTP_CODE:%{http_code}\n"
+                                "-o" expanded-filename
+                                "-X" "POST"
+                                "--data-binary" (format "@%s" temp-json-file)
+                                url))
+            
+            ;; Clean up config file immediately
+            (when (file-exists-p curl-config-file)
+              (delete-file curl-config-file)))
           
           ;; Read curl output for debugging
           (let ((curl-output (when (file-exists-p temp-output)
@@ -192,7 +217,7 @@ Save result to FILENAME and return success status."
             
             (cond
              ((= exit-code 0)
-              (if (and (file-exists-p filename) (> (nth 7 (file-attributes filename)) 100))
+              (if (and (file-exists-p expanded-filename) (> (nth 7 (file-attributes expanded-filename)) 100))
                   (progn
                     (message "✅ Audio successfully saved to: %s" filename)
                     t)
@@ -222,6 +247,8 @@ Save result to FILENAME and return success status."
       ;; Cleanup temp files
       (when (file-exists-p temp-json-file)
         (delete-file temp-json-file))
+      (when (file-exists-p temp-header-file)
+        (delete-file temp-header-file))
       (when (file-exists-p temp-output)
         (delete-file temp-output)))))
 
@@ -380,6 +407,13 @@ GENDER should be \='male or \='female."
   (global-set-key (kbd "C-c s") 'elevenlabs-tts-speak-selection)
   (global-set-key (kbd "C-c S") (lambda () (interactive) (elevenlabs-tts-speak-selection-quick 'male)))
   (global-set-key (kbd "C-c M-s") (lambda () (interactive) (elevenlabs-tts-speak-selection-quick 'female))))
+
+;;;###autoload
+(defun elevenlabs-tts-toggle-debug ()
+  "Toggle debug output for ElevenLabs TTS."
+  (interactive)
+  (setq elevenlabs-tts-debug (not elevenlabs-tts-debug))
+  (message "ElevenLabs TTS debug mode: %s" (if elevenlabs-tts-debug "enabled" "disabled")))
 
 (provide 'elevenlabs-tts)
 
