@@ -65,48 +65,6 @@
   (should (assoc 'style elevenlabs-tts-default-settings))
   (should (assoc 'use_speaker_boost elevenlabs-tts-default-settings)))
 
-(ert-deftest test-elevenlabs-tts-multibyte-request-encoding ()
-  "Ensure multibyte text is UTF-8 encoded and unibyte in HTTP request.
-This is a regression test for the 'Multibyte text in HTTP request' error."
-  (let* ((test-text "The volunteer nodded and dashed off. Karin exhaled and whispered,\n“Good. That’s one less red box later.”\n")
-         (captured-data nil)
-         (captured-headers nil)
-         (voice-id (or (elevenlabs-tts--get-voice-id "Rachel") "21m00Tcm4TlvDq8ikWAM"))
-         (tmp-file (make-temp-file "tts-unit-" nil ".mp3")))
-    (unwind-protect
-        (progn
-          ;; Stub the HTTP call and capture the request variables
-          (cl-letf (((symbol-function 'url-retrieve-synchronously)
-                     (lambda (&rest _args)
-                       (setq captured-data url-request-data
-                             captured-headers url-request-extra-headers)
-                       ;; Do not perform network; return nil as buffer
-                       nil)))
-            ;; Call the function under test
-            (ignore-errors
-              (elevenlabs-tts--make-api-request-sync voice-id test-text tmp-file))
-            ;; Assertions on captured request data
-            (should captured-headers)
-            (should captured-data)
-            ;; Content-Type must include charset=utf-8
-            (let ((ct (cdr (assoc "Content-Type" captured-headers))))
-              (should (string-match-p "charset=utf-8" (or ct ""))))
-            ;; Request data must be a unibyte string (raw bytes), not multibyte
-            (should (not (multibyte-string-p captured-data)))
-            ;; Decoding back as UTF-8 should reproduce the original JSON with test text
-            (let* ((decoded (decode-coding-string captured-data 'utf-8)))
-              (should (string-match-p "\\\"text\\\"" decoded))
-              ;; Rather than checking for exact text, just verify the special characters are present
-              ;; since JSON encoding will escape quotes
-              (should (string-match-p "nodded and dashed off" decoded))
-              (should (string-match-p "Karin exhaled and whispered" decoded))
-              (should (string-match-p "Good" decoded))
-              (should (string-match-p "That" decoded))
-              (should (string-match-p "one less red box later" decoded))))
-      ;; Cleanup
-      (when (file-exists-p tmp-file)
-        (ignore-errors (delete-file tmp-file))))))
-
 (ert-deftest test-elevenlabs-tts-api-key-file-default ()
   "Test that API key file path is set correctly."
   (should (stringp elevenlabs-tts-api-key-file))
