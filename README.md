@@ -6,7 +6,9 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 - Convert selected text to speech using ElevenLabs' premium voices
 - Support for both male and female voices
-- Sequential file naming (automatically generates `filename-01.mp3`, `filename-02.mp3`, etc.)
+- Smart filename generation with voice names (e.g., `article-0001-rachel.mp3`, `article-0002-josh.mp3`)
+- Global sequential numbering across all voices (0001, 0002, 0003...)
+- Supports up to 9,999 files with 4-digit numbering
 - Audio files saved in the same directory as the current buffer
 - Interactive voice selection or quick shortcuts
 - Convenient keybindings
@@ -125,10 +127,21 @@ Customize the voice parameters:
 
 ### File Naming
 
-Audio files are saved with sequential naming:
-- First file: `buffer-name-01.mp3`
-- Second file: `buffer-name-02.mp3`
-- And so on...
+Audio files are saved with smart sequential naming that includes voice information:
+
+**Format:** `basename-####-voicename.mp3`
+
+**Examples:**
+- `article-0001-rachel.mp3` ← First file with Rachel
+- `article-0002-josh.mp3` ← Second file with Josh  
+- `article-0003-rachel.mp3` ← Third file with Rachel again
+- `article-0004-charlie.mp3` ← Fourth file with Charlie
+
+**Features:**
+- **Voice identification**: Easy to see which voice was used
+- **Global numbering**: Sequence continues across all voices (no per-voice restart)
+- **4-digit format**: Supports up to 9,999 files with proper sorting
+- **Chronological order**: Numbers reflect creation order regardless of voice changes
 
 Files are saved in the same directory as the current buffer, or in the current working directory if the buffer has no associated file.
 
@@ -139,9 +152,10 @@ Files are saved in the same directory as the current buffer, or in the current w
 2. Select some text: "Hello, this is a test of the text-to-speech system."
 3. Press `C-c s`
 4. Choose voice from completion list (e.g., Josh, Rachel, etc.)
-5. Confirm file path: `/home/user/documents/article-01.mp3` (or edit as needed)
+5. Confirm file path: `/home/user/documents/article-0001-josh.mp3` (or edit as needed)
 6. Wait for generation
-7. See success message: "✅ Audio successfully saved to: /home/user/documents/article-01.mp3"
+7. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-josh.mp3"
+8. Next selection with Rachel creates: `article-0002-rachel.mp3` (continues sequence)
 
 ## Troubleshooting
 
@@ -174,11 +188,12 @@ Files are saved in the same directory as the current buffer, or in the current w
 Enable debug output to troubleshoot API issues:
 
 ```elisp
-;; Enable debug output
-(setq elevenlabs-tts-debug t)
+;; Method 1: Toggle debug mode interactively
+M-x elevenlabs-tts-toggle-debug
 
-;; Disable debug output (default)
-(setq elevenlabs-tts-debug nil)
+;; Method 2: Set debug mode programmatically
+(setq elevenlabs-tts-debug t)   ; Enable
+(setq elevenlabs-tts-debug nil) ; Disable (default)
 ```
 
 With debug mode enabled, you'll see detailed information including:
@@ -194,8 +209,17 @@ Create a simple test:
 1. Create a new buffer: `C-x b test-tts RET`
 2. Type some text: "Hello, this is a test of the text to speech system."
 3. Select the text: `C-x h`
-4. Press: `C-c s` and choose any voice
-5. Check for `test-tts-01.mp3` in your current directory
+4. Press: `C-c s` and choose any voice (e.g., Rachel)
+5. Check for `test-tts-0001-rachel.mp3` in your current directory
+
+## Security Features
+
+The package includes several security improvements:
+
+- **API Key Protection**: API keys are never exposed in process lists (invisible to `ps aux`)
+- **Shell Injection Prevention**: Filenames are properly escaped to prevent shell injection attacks
+- **Secure Temporary Files**: Uses curl config files instead of command-line arguments for sensitive data
+- **Automatic Cleanup**: All temporary files are securely deleted after use
 
 ## API Costs
 
