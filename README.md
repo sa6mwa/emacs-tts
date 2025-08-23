@@ -17,6 +17,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 1. **ElevenLabs API Key**: Sign up at [ElevenLabs.io](https://elevenlabs.io/) and get your API key
 2. **Emacs 25.1 or later**
+3. **curl** (recommended): For better UTF-8 text handling. The package automatically falls back to Emacs' built-in HTTP client if curl is not available.
 
 ### Setup Instructions
 
@@ -162,6 +163,29 @@ Files are saved in the same directory as the current buffer, or in the current w
 4. **File not saved**
    - Check write permissions in the target directory
    - Ensure the directory exists
+
+5. **Unicode/Multibyte Text Issues**
+   - The package automatically handles UTF-8 encoding for special characters, accents, smart quotes, etc.
+   - If you encounter "Multibyte text in HTTP request" errors, ensure curl is installed
+   - Enable debug mode for detailed diagnostics: `(setq elevenlabs-tts-debug t)`
+
+### Debug Mode
+
+Enable debug output to troubleshoot API issues:
+
+```elisp
+;; Enable debug output
+(setq elevenlabs-tts-debug t)
+
+;; Disable debug output (default)
+(setq elevenlabs-tts-debug nil)
+```
+
+With debug mode enabled, you'll see detailed information including:
+- JSON payload being sent to the API
+- Temporary file locations
+- Curl exit codes and full output
+- HTTP response codes and error messages
 
 ### Testing Your Setup
 

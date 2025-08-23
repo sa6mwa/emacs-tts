@@ -82,6 +82,12 @@ Get an API key at https://elevenlabs.io/"
   :type '(alist :key-type symbol :value-type (choice number boolean))
   :group 'elevenlabs-tts)
 
+(defcustom elevenlabs-tts-debug nil
+  "Enable debug output for API requests.
+When non-nil, shows detailed curl output and request information."
+  :type 'boolean
+  :group 'elevenlabs-tts)
+
 (defvar elevenlabs-tts-api-base-url "https://api.elevenlabs.io/v1"
   "Base URL for ElevenLabs API.")
 
@@ -129,21 +135,94 @@ Save result to FILENAME and return success status."
   (let ((api-key (elevenlabs-tts--read-api-key)))
     (unless (and api-key (not (string-empty-p api-key)))
       (error "ElevenLabs API key not found or empty. Please check %s" elevenlabs-tts-api-key-file))
-  
-    (let* ((url (format "%s/text-to-speech/%s" elevenlabs-tts-api-base-url voice-id))
-           (url-request-method "POST")
-           (url-request-extra-headers
-            `(("Content-Type" . "application/json; charset=utf-8")
-              ("xi-api-key" . ,api-key)))
-           ;; Ensure proper UTF-8 encoding for multibyte text
-           (url-request-data
-            (encode-coding-string
-             (json-encode
-              `((text . ,text)
-                (model_id . "eleven_monolingual_v1")
-                (voice_settings . ,elevenlabs-tts-default-settings)))
-             'utf-8))
-           (response-buffer))
+    
+    ;; Try curl first for better UTF-8 handling, fall back to url package
+    (if (executable-find "curl")
+        (elevenlabs-tts--make-curl-request voice-id text filename api-key)
+      (elevenlabs-tts--make-url-request voice-id text filename api-key))))
+
+(defun elevenlabs-tts--make-curl-request (voice-id text filename api-key)
+  "Make API request using curl for better UTF-8 handling."
+  (let* ((url (format "%s/text-to-speech/%s" elevenlabs-tts-api-base-url voice-id))
+         (json-payload (json-encode
+                        `((text . ,text)
+                          (model_id . "eleven_monolingual_v1")
+                          (voice_settings . ,elevenlabs-tts-default-settings))))
+         (temp-json-file (make-temp-file "tts-json-" nil ".json"))
+         (temp-output (make-temp-file "tts-output-"))
+         (exit-code))
+    (unwind-protect
+        (progn
+          ;; Write JSON payload to temp file with proper UTF-8 encoding
+          (with-temp-file temp-json-file
+            (set-buffer-file-coding-system 'utf-8)
+            (insert json-payload))
+          
+          (when elevenlabs-tts-debug
+            (message "Debug: JSON payload: %s" json-payload)
+            (message "Debug: Temp files - JSON: %s, Output: %s" temp-json-file temp-output))
+          
+          (message "Making request to ElevenLabs API with curl...")
+          (setq exit-code
+                (call-process "curl" nil temp-output nil
+                              "-w" "HTTP_CODE:%{http_code}\n"
+                              "-o" filename
+                              "-X" "POST"
+                              "-H" "Content-Type: application/json; charset=utf-8"
+                              "-H" (format "xi-api-key: %s" api-key)
+                              "--data-binary" (format "@%s" temp-json-file)
+                              url))
+          
+          ;; Read curl output for debugging
+          (let ((curl-output (when (file-exists-p temp-output)
+                              (with-temp-buffer
+                                (insert-file-contents temp-output)
+                                (buffer-string)))))
+            
+            (when elevenlabs-tts-debug
+              (message "Debug: Curl exit code: %d" exit-code)
+              (message "Debug: Curl output: %s" curl-output))
+            
+            (cond
+             ((= exit-code 0)
+              (if (and (file-exists-p filename) (> (nth 7 (file-attributes filename)) 100))
+                  (progn
+                    (message "✅ Audio successfully saved to: %s" filename)
+                    t)
+                (progn
+                  (message "❌ No audio data received from API%s" 
+                           (if elevenlabs-tts-debug
+                               (format ". Curl output: %s" curl-output)
+                             " (enable elevenlabs-tts-debug for details)"))
+                  nil)))
+             (t
+              (message "❌ Curl request failed with exit code: %d%s" exit-code
+                       (if elevenlabs-tts-debug
+                           (format ". Output: %s" curl-output)
+                         " (enable elevenlabs-tts-debug for details)"))
+              nil))))
+      ;; Cleanup temp files
+      (when (file-exists-p temp-json-file)
+        (delete-file temp-json-file))
+      (when (file-exists-p temp-output)
+        (delete-file temp-output)))))
+
+(defun elevenlabs-tts--make-url-request (voice-id text filename api-key)
+  "Make API request using Emacs url package (fallback)."
+  (let* ((url (format "%s/text-to-speech/%s" elevenlabs-tts-api-base-url voice-id))
+         (url-request-method "POST")
+         (url-request-extra-headers
+          `(("Content-Type" . "application/json; charset=utf-8")
+            ("xi-api-key" . ,api-key)))
+         ;; Ensure proper UTF-8 encoding for multibyte text
+         (url-request-data
+          (encode-coding-string
+           (json-encode
+            `((text . ,text)
+              (model_id . "eleven_monolingual_v1")
+              (voice_settings . ,elevenlabs-tts-default-settings)))
+           'utf-8))
+         (response-buffer))
       
       (condition-case error-data
           (progn
@@ -201,7 +280,7 @@ Save result to FILENAME and return success status."
         (error
          (when response-buffer (kill-buffer response-buffer))
          (message "❌ API request error: %s" (error-message-string error-data))
-         nil)))))
+         nil))))
 
 
 (defun elevenlabs-tts--select-voice (gender)
