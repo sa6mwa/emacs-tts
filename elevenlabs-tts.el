@@ -1,4 +1,4 @@
-;;; elevenlabs-tts.el --- ElevenLabs Text-to-Speech integration for Emacs
+;;; elevenlabs-tts.el --- ElevenLabs Text-to-Speech integration for Emacs  -*- lexical-binding: t; -*-
 
 ;; Author: Your Name
 ;; Version: 1.0
@@ -100,11 +100,11 @@ Get an API key at https://elevenlabs.io/"
 
 (defun elevenlabs-tts--get-next-filename (base-path base-name)
   "Get the next sequential filename in BASE-PATH with BASE-NAME.
-Returns a filename like 'basename-01.wav', 'basename-02.wav', etc."
+Returns a filename like \='basename-01.mp3\=', \='basename-02.mp3\=', etc."
   (let ((counter 1)
         (filename))
     (while (progn
-             (setq filename (format "%s-%02d.wav" 
+             (setq filename (format "%s-%02d.mp3" 
                                    (expand-file-name base-name base-path)
                                    counter))
              (file-exists-p filename))
@@ -123,8 +123,9 @@ Returns a filename like 'basename-01.wav', 'basename-02.wav', etc."
       (file-name-sans-extension (file-name-nondirectory buffer-file-name))
     "tts-audio"))
 
-(defun elevenlabs-tts--make-api-request (voice-id text callback)
-  "Make API request to ElevenLabs with VOICE-ID and TEXT, call CALLBACK with result."
+(defun elevenlabs-tts--make-api-request-sync (voice-id text filename)
+  "Make synchronous API request to ElevenLabs with VOICE-ID and TEXT.
+Save result to FILENAME and return success status."
   (let ((api-key (elevenlabs-tts--read-api-key)))
     (unless (and api-key (not (string-empty-p api-key)))
       (error "ElevenLabs API key not found or empty. Please check %s" elevenlabs-tts-api-key-file))
@@ -134,51 +135,73 @@ Returns a filename like 'basename-01.wav', 'basename-02.wav', etc."
            (url-request-extra-headers
             `(("Content-Type" . "application/json")
               ("xi-api-key" . ,api-key)))
-         (url-request-data
-          (json-encode
-           `((text . ,text)
-             (model_id . "eleven_monolingual_v1")
-             (voice_settings . ,elevenlabs-tts-default-settings))))
-           (buffer (url-retrieve url callback nil t)))
-      buffer)))
-
-(defun elevenlabs-tts--handle-api-response (status filename)
-  "Handle API response with STATUS and save audio to FILENAME."
-  (condition-case err
-      (if (plist-get status :error)
+           (url-request-data
+            (json-encode
+             `((text . ,text)
+               (model_id . "eleven_monolingual_v1")
+               (voice_settings . ,elevenlabs-tts-default-settings))))
+           (response-buffer))
+      
+      (condition-case err
           (progn
-            (kill-buffer)
-            (message "❌ API Error: %s" (plist-get status :error)))
-        (progn
-          ;; Check HTTP status
-          (goto-char (point-min))
-          (if (looking-at "HTTP/[0-9]\.[0-9] \([0-9]+\)")
-              (let ((status-code (string-to-number (match-string 1))))
-                (if (= status-code 200)
+            (message "Making request to ElevenLabs API...")
+            (message "Making request URL: %s" url)
+            (setq response-buffer (url-retrieve-synchronously url t nil 30))
+            (message "Making request returned: %s" response-buffer)
+            
+            (if response-buffer
+                (with-current-buffer response-buffer
+                  ;; Make sure we're at the beginning of the buffer
+                  (goto-char (point-min))
+                  (let ((first-line (buffer-substring-no-properties (point-min) (line-end-position))))
+                    (if (string-match "HTTP/[0-9]+\\.[0-9]+ \\([0-9]+\\)" first-line)
+                        (let ((status-code (string-to-number (match-string 1 first-line))))
+                          (cond
+                         ((= status-code 200)
+                          ;; Find and extract the body
+                          (if (search-forward "\n\n" nil t)
+                              (let ((body-start (point))
+                                    (body-size (- (point-max) (point))))
+                                (if (> body-size 0)
+                                    (progn
+                                      ;; Save the audio data
+                                      (let ((coding-system-for-write 'binary))
+                                        (write-region body-start (point-max) filename))
+                                      (kill-buffer response-buffer)
+                                      (message "✅ Audio successfully saved to: %s" filename)
+                                      t) ; Return success
+                                  (progn
+                                    (kill-buffer response-buffer)
+                                    (message "❌ No audio data received from API")
+                                    nil)))
+                            (progn
+                              (kill-buffer response-buffer)
+                              (message "❌ Could not find response body")
+                              nil)))
+                         ((= status-code 401)
+                          (kill-buffer response-buffer)
+                          (message "❌ HTTP 401 - Unauthorized (check API key)")
+                          nil)
+                         ((= status-code 422)
+                          (kill-buffer response-buffer)
+                          (message "❌ HTTP 422 - Invalid request format")
+                          nil)
+                         (t
+                          (kill-buffer response-buffer)
+                          (message "❌ HTTP Error %d" status-code)
+                          nil)))
                     (progn
-                      ;; Skip HTTP headers
-                      (search-forward "\n\n")
-                      (delete-region (point-min) (point))
-                      
-                      ;; Check if we got audio data
-                      (if (= (point-min) (point-max))
-                          (progn
-                            (kill-buffer)
-                            (message "❌ No audio data received from API"))
-                        ;; Save the audio data
-                        (let ((coding-system-for-write 'binary))
-                          (write-region (point-min) (point-max) filename))
-                        (kill-buffer)
-                        (message "✅ Audio successfully saved to: %s" filename)))
-                  (progn
-                    (kill-buffer)
-                    (message "❌ HTTP Error %d: Request failed" status-code))))
-            (progn
-              (kill-buffer)
-              (message "❌ Invalid HTTP response received")))))
-    (error
-     (kill-buffer)
-     (message "❌ Error processing response: %s" (error-message-string err)))))
+                      (kill-buffer response-buffer)
+                      (message "❌ Invalid HTTP response format")
+                      nil)))
+              (progn
+                (message "❌ Failed to retrieve response from API")
+                nil)))
+        (error
+         (when response-buffer (kill-buffer response-buffer))
+         (message "❌ API request error: %s" (error-message-string err))
+         nil))))))
+
 
 (defun elevenlabs-tts--select-voice (gender)
   "Select a voice based on GENDER ('male or 'female)."
@@ -219,11 +242,8 @@ Interactive workflow: select voice, confirm/edit output path, then generate audi
       
       (message "Generating speech with %s voice..." voice-name)
       
-      (elevenlabs-tts--make-api-request 
-       voice-id 
-       text
-       (lambda (status)
-         (elevenlabs-tts--handle-api-response status filename))))))
+      ;; Make synchronous API call  
+      (elevenlabs-tts--make-api-request-sync voice-id text filename))))
 
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection-quick (gender)
@@ -245,11 +265,8 @@ GENDER should be 'male or 'female."
       
       (message "Generating speech with %s voice..." voice-name)
       
-      (elevenlabs-tts--make-api-request 
-       voice-id 
-       text
-       (lambda (status)
-         (elevenlabs-tts--handle-api-response status filename))))))
+      ;; Make synchronous API call
+      (elevenlabs-tts--make-api-request-sync voice-id text filename))))
 
 
 ;; Main keybinding

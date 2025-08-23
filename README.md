@@ -6,7 +6,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 - Convert selected text to speech using ElevenLabs' premium voices
 - Support for both male and female voices
-- Sequential file naming (automatically generates `filename-01.wav`, `filename-02.wav`, etc.)
+- Sequential file naming (automatically generates `filename-01.mp3`, `filename-02.mp3`, etc.)
 - Audio files saved in the same directory as the current buffer
 - Interactive voice selection or quick shortcuts
 - Convenient keybindings
@@ -17,7 +17,6 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 1. **ElevenLabs API Key**: Sign up at [ElevenLabs.io](https://elevenlabs.io/) and get your API key
 2. **Emacs 25.1 or later**
-3. **curl** (for API requests) - usually pre-installed on most systems
 
 ### Setup Instructions
 
@@ -122,8 +121,8 @@ Customize the voice parameters:
 ### File Naming
 
 Audio files are saved with sequential naming:
-- First file: `buffer-name-01.wav`
-- Second file: `buffer-name-02.wav`
+- First file: `buffer-name-01.mp3`
+- Second file: `buffer-name-02.mp3`
 - And so on...
 
 Files are saved in the same directory as the current buffer, or in the current working directory if the buffer has no associated file.
@@ -135,9 +134,9 @@ Files are saved in the same directory as the current buffer, or in the current w
 2. Select some text: "Hello, this is a test of the text-to-speech system."
 3. Press `C-c s`
 4. Choose voice from completion list (e.g., Josh, Rachel, etc.)
-5. Confirm file path: `/home/user/documents/article-01.wav` (or edit as needed)
+5. Confirm file path: `/home/user/documents/article-01.mp3` (or edit as needed)
 6. Wait for generation
-7. See success message: "✅ Audio successfully saved to: /home/user/documents/article-01.wav"
+7. See success message: "✅ Audio successfully saved to: /home/user/documents/article-01.mp3"
 
 ## Troubleshooting
 
@@ -168,7 +167,7 @@ Create a simple test:
 2. Type some text: "Hello, this is a test of the text to speech system."
 3. Select the text: `C-x h`
 4. Press: `C-c s` and choose any voice
-5. Check for `test-tts-01.wav` in your current directory
+5. Check for `test-tts-01.mp3` in your current directory
 
 ## API Costs
 
@@ -182,12 +181,3 @@ Feel free to submit issues and pull requests to improve this package.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Changelog
-
-### v1.0
-- Initial release
-- Support for male and female voices
-- Multiple voice options available
-- Sequential file naming
-- Interactive and quick selection modes
-- Configurable voice settings
