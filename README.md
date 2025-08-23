@@ -45,6 +45,10 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
    
    ;; Set up the main keybinding C-c s
    (elevenlabs-tts-setup-keybinding)
+   
+   ;; OR: Set up custom keybindings (override default C-c s)
+   ;; (global-set-key (kbd "C-c t") 'elevenlabs-tts-speak-selection)
+   ;; (global-set-key (kbd "C-c T") (lambda () (interactive) (elevenlabs-tts-speak-selection-quick 'male)))
    ```
 
 4. **Restart Emacs** or evaluate the configuration.

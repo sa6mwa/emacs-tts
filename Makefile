@@ -76,6 +76,11 @@ install: setup
 	@echo "   (add-to-list 'load-path \"$(INSTALL_DIR)\")"
 	@echo "   (require 'elevenlabs-tts)"
 	@echo "   (elevenlabs-tts-setup-keybinding)"
+	@echo ""
+	@echo "$(YELLOW)To override the default keybinding (C-c s), add your own:$(NC)"
+	@echo "   ;; Example: Use C-c t instead of C-c s"
+	@echo "   (global-set-key (kbd \"C-c t\") 'elevenlabs-tts-speak-selection)"
+	@echo "   (global-set-key (kbd \"C-c T\") (lambda () (interactive) (elevenlabs-tts-speak-selection-quick 'male)))"
 
 # Check if API key is configured
 check-api-key:
