@@ -104,15 +104,23 @@ When non-nil, shows detailed curl output and request information."
   "Get the voice ID for VOICE-NAME."
   (cdr (assoc voice-name elevenlabs-tts-voices)))
 
-(defun elevenlabs-tts--get-next-filename (base-path base-name)
-  "Get the next sequential filename in BASE-PATH with BASE-NAME.
-Returns a filename like \\='basename-01.mp3\\=', \\='basename-02.mp3\\=', etc."
+(defun elevenlabs-tts--get-voice-name (voice-id)
+  "Get the voice name for VOICE-ID."
+  (let ((voice-entry (cl-find voice-id elevenlabs-tts-voices :key #'cdr :test #'string-equal)))
+    (when voice-entry
+      (car voice-entry))))
+
+(defun elevenlabs-tts--get-next-filename (base-path base-name voice-name)
+  "Get the next sequential filename in BASE-PATH with BASE-NAME and VOICE-NAME.
+Returns a filename like \\='basename-01-voicename.mp3\\=', \\='basename-02-voicename.mp3\\=', etc."
   (let ((counter 1)
-        (filename))
+        (filename)
+        (voice-name-lower (downcase voice-name)))
     (while (progn
-             (setq filename (format "%s-%02d.mp3" 
+             (setq filename (format "%s-%02d-%s.mp3" 
                                    (expand-file-name base-name base-path)
-                                   counter))
+                                   counter
+                                   voice-name-lower))
              (file-exists-p filename))
       (setq counter (1+ counter)))
     filename))
@@ -352,7 +360,7 @@ Interactive workflow: select voice, confirm/edit output path, generate audio."
            (voice-id (elevenlabs-tts--get-voice-id voice-name))
            (base-dir (elevenlabs-tts--get-buffer-directory))
            (base-name (elevenlabs-tts--get-base-filename))
-           (default-filename (elevenlabs-tts--get-next-filename base-dir base-name))
+           (default-filename (elevenlabs-tts--get-next-filename base-dir base-name voice-name))
            ;; Let user confirm or edit the output path
            (filename (read-file-name "Output file: " (file-name-directory default-filename)
                                     nil nil (file-name-nondirectory default-filename))))
@@ -386,7 +394,7 @@ GENDER should be \='male or \='female."
            (voice-id (elevenlabs-tts--get-voice-id voice-name))
            (base-dir (elevenlabs-tts--get-buffer-directory))
            (base-name (elevenlabs-tts--get-base-filename))
-           (filename (elevenlabs-tts--get-next-filename base-dir base-name)))
+           (filename (elevenlabs-tts--get-next-filename base-dir base-name voice-name)))
       
       (message "Generating speech with %s voice..." voice-name)
       
