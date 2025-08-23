@@ -38,22 +38,30 @@
     (should (equal (elevenlabs-tts--get-base-filename) "tts-audio"))))
 
 (ert-deftest test-elevenlabs-tts-get-next-filename ()
-  "Test sequential filename generation with voice names."
+  "Test sequential filename generation with voice names and global numbering."
   (let ((temp-dir (make-temp-file "tts-test-" t)))
     (unwind-protect
         (progn
-          ;; Test first file
+          ;; Test first file with 4-digit format
           (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Rachel")))
-            (should (string-match "test-01-rachel\\.mp3$" filename)))
+            (should (string-match "test-0001-rachel\\.mp3$" filename)))
           
-          ;; Create the first file and test second
-          (write-region "test" nil (expand-file-name "test-01-rachel.mp3" temp-dir))
+          ;; Create the first file and test second with same voice
+          (write-region "test" nil (expand-file-name "test-0001-rachel.mp3" temp-dir))
           (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Rachel")))
-            (should (string-match "test-02-rachel\\.mp3$" filename)))
+            (should (string-match "test-0002-rachel\\.mp3$" filename)))
           
-          ;; Test with different voice (uppercase -> lowercase)
+          ;; Create the second file to establish the sequence
+          (write-region "test" nil (expand-file-name "test-0002-rachel.mp3" temp-dir))
+          
+          ;; Test global numbering: different voice should continue sequence (not restart at 01)
           (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Josh")))
-            (should (string-match "test-01-josh\\.mp3$" filename))))
+            (should (string-match "test-0003-josh\\.mp3$" filename)))
+          
+          ;; Create a higher numbered file to test max detection
+          (write-region "test" nil (expand-file-name "test-0010-charlie.mp3" temp-dir))
+          (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Emily")))
+            (should (string-match "test-0011-emily\\.mp3$" filename))))
       ;; Cleanup
       (when (file-exists-p temp-dir)
         (delete-directory temp-dir t)))))

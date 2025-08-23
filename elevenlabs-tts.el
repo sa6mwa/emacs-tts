@@ -112,17 +112,30 @@ When non-nil, shows detailed curl output and request information."
 
 (defun elevenlabs-tts--get-next-filename (base-path base-name voice-name)
   "Get the next sequential filename in BASE-PATH with BASE-NAME and VOICE-NAME.
-Returns a filename like \\='basename-01-voicename.mp3\\=', \\='basename-02-voicename.mp3\\=', etc."
+Returns a filename like \\='basename-0001-voicename.mp3\\=', \\='basename-0002-voicename.mp3\\=', etc.
+Numbering is global across all voices, not per-voice."
   (let ((counter 1)
         (filename)
-        (voice-name-lower (downcase voice-name)))
-    (while (progn
-             (setq filename (format "%s-%02d-%s.mp3" 
-                                   (expand-file-name base-name base-path)
-                                   counter
-                                   voice-name-lower))
-             (file-exists-p filename))
-      (setq counter (1+ counter)))
+        (voice-name-lower (downcase voice-name))
+        (base-pattern (expand-file-name base-name base-path)))
+    ;; Find the highest existing number across ALL voices
+    (let ((existing-files (directory-files (file-name-directory base-pattern) nil
+                                          (format "^%s-[0-9]\\{4\\}-.*\\.mp3$" 
+                                                 (regexp-quote (file-name-nondirectory base-pattern))))))
+      (when existing-files
+        (let ((max-number 0))
+          (dolist (file existing-files)
+            (when (string-match (format "^%s-\\([0-9]\\{4\\}\\)-.*\\.mp3$" 
+                                       (regexp-quote (file-name-nondirectory base-pattern))) file)
+              (let ((file-number (string-to-number (match-string 1 file))))
+                (setq max-number (max max-number file-number)))))
+          (setq counter (1+ max-number)))))
+    
+    ;; Generate filename with global counter
+    (setq filename (format "%s-%04d-%s.mp3" 
+                          base-pattern
+                          counter
+                          voice-name-lower))
     filename))
 
 (defun elevenlabs-tts--get-buffer-directory ()
