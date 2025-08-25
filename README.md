@@ -6,6 +6,9 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 - Convert selected text to speech using ElevenLabs' premium voices
 - Support for both male and female voices
+- Comprehensive error handling with user-friendly messages for common issues
+- Automatic MP3 file validation and corrupted file detection
+- Optional audio playback with support for multiple players (ffplay, mplayer, mpv, vlc, etc.)
 - Per-buffer output directory: Each buffer can have its own custom output directory
 - Smart filename generation with voice names (e.g., `article-0001-rachel.mp3`, `article-0002-josh.mp3`)
 - Global sequential numbering across all voices (0001, 0002, 0003...)
@@ -13,6 +16,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 - Flexible output location: custom directory per buffer or default to buffer's directory
 - Interactive voice selection or quick shortcuts
 - Convenient keybindings
+- Extensive test suite with both unit and integration tests
 
 ## Installation
 
@@ -21,6 +25,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 1. **ElevenLabs API Key**: Sign up at [ElevenLabs.io](https://elevenlabs.io/) and get your API key
 2. **Emacs 25.1 or later**
 3. **curl** (recommended): For better UTF-8 text handling. The package automatically falls back to Emacs' built-in HTTP client if curl is not available.
+4. **Audio Player** (optional): For automatic playback functionality - supports `ffplay`, `mplayer`, `mpg123`, `mpg321`, `mpv`, `vlc`, and GStreamer
 
 ### Setup Instructions
 
@@ -241,13 +246,39 @@ With debug mode enabled, you'll see detailed information including:
 
 ### Testing Your Setup
 
-Create a simple test:
+#### Manual Test
+The package includes a built-in manual test:
+
+```bash
+# Quick manual test (requires API key and credits)
+make test-manual
+```
+
+#### Interactive Test
+Create a simple test manually:
 
 1. Create a new buffer: `C-x b test-tts RET`
 2. Type some text: "Hello, this is a test of the text to speech system."
 3. Select the text: `C-x h`
 4. Press: `C-c s` and choose any voice (e.g., Rachel)
 5. Check for `test-tts-0001-rachel.mp3` in your current directory
+
+#### Comprehensive Testing
+Run the full test suite:
+
+```bash
+# Run all tests (unit + integration)
+make test
+
+# Run only unit tests (no API key required)
+make test-unit
+
+# Run only integration tests (requires API key and credits)
+make test-integration
+
+# Test audio playback functionality
+make test-playback
+```
 
 ## Security Features
 
@@ -261,6 +292,10 @@ The package includes several security improvements:
 ## API Costs
 
 ElevenLabs charges per character processed. Check your account usage at [ElevenLabs.io](https://elevenlabs.io/). The package uses the `eleven_monolingual_v1` model for optimal English speech.
+
+## Changelog
+
+For detailed information about recent improvements including comprehensive error handling, audio playback integration, and extensive test suite enhancements, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

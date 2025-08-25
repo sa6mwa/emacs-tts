@@ -17,6 +17,7 @@ TEST_OUTPUT = test-tts-output.mp3
 GREEN = \033[0;32m
 YELLOW = \033[1;33m
 RED = \033[0;31m
+BLUE = \033[0;34m
 NC = \033[0m # No Color
 
 .PHONY: all test test-unit test-integration test-playback test-manual install clean check-api-key setup help lint info
@@ -114,20 +115,9 @@ test-integration:
 # Run playback-specific tests
 test-playback:
 	@./run-tests.sh playback
-
 # Manual test - generate a test audio file and play it automatically
-test-manual: check-api-key clean
-	@echo "$(GREEN)Running manual TTS test...$(NC)"
-	@echo "$(YELLOW)Generating audio with Rachel voice and auto-playing...$(NC)"
-	@$(EMACS) -batch -l $(PACKAGE_FILE) \
-		--eval '(let ((voice-id (elevenlabs-tts--get-voice-id "Rachel")) (test-phrase "Hello, this is a test of the ElevenLabs text to speech system. Testing one, two, three.") (output-file "$(TEST_OUTPUT)")) (setq elevenlabs-tts-enable-playback t) (cl-letf (((symbol-function (quote read-string)) (lambda (prompt) "y"))) (if (elevenlabs-tts--make-api-request-sync voice-id test-phrase output-file) (progn (message "✅ Audio successfully generated: %s" output-file) (message "File size: %d bytes" (nth 7 (file-attributes output-file)))) (message "❌ Audio generation failed"))))' \\
-		2>&1 | grep -E "(✅|❌|Audio|File size|Making request|🔊|Playing)" || true
-	@if [ -f "$(TEST_OUTPUT)" ]; then \
-		echo "$(GREEN)✅ Test audio file created and played: $(TEST_OUTPUT)$(NC)"; \
-		echo "$(YELLOW)Audio playback should have completed automatically$(NC)"; \
-	else \
-		echo "$(RED)❌ Test audio file was not created$(NC)"; \
-	fi
+test-manual: check-api-key
+	@./run-tests.sh manual
 
 # Lint/check the Emacs Lisp code
 lint:

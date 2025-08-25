@@ -104,7 +104,15 @@
                               (ofile (and o-index (nth (1+ o-index) args))))
                          (when ofile
                            (with-temp-file ofile
-                             (insert (make-string 256 ?X))))
+                             (set-buffer-multibyte nil)
+                             ;; Write valid MP3 magic bytes followed by some data
+                             (insert "\xFF\xFB\x90\x00")
+                             (insert (make-string 252 ?X))))
+                         ;; Write HTTP 200 status to temp output for curl
+                         (when buffer
+                           (with-temp-buffer
+                             (insert "HTTP_CODE:200\n")
+                             (write-region (point-min) (point-max) buffer)))
                          0)))
                     ;; Mock playback prompt to avoid interaction
                     ((symbol-function 'elevenlabs-tts--prompt-for-playback)
@@ -127,10 +135,11 @@
 (defun test-elevenlabs-tts--create-test-audio-file ()
   "Create a test audio file for testing."
   (let ((test-file (make-temp-file "test-audio-" nil ".mp3")))
-    ;; Create a minimal MP3-like file (just some bytes to test file operations)
+    ;; Create a minimal MP3-like file (need >10 bytes for validation)
     (with-temp-file test-file
-      (set-buffer-file-coding-system 'binary)
-      (insert "\xFF\xFB\x90\x00"))  ; MP3 header-like bytes
+      (set-buffer-multibyte nil)
+      (insert (string 255 251 144 0))  ; MP3 frame sync bytes
+      (insert (make-string 20 0)))     ; Add padding to make file >10 bytes
     (setq test-audio-file test-file)
     test-file))
 
@@ -336,6 +345,153 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
           (should t))  ; If we reach this point, no error occurred
       (funcall restore-fn))))
 
+;;; Unit Tests for API Functions (with complete mocking)
+
+(ert-deftest test-elevenlabs-tts-unit-api-request-success ()
+  "Test successful API request with completely mocked backend (unit test)."
+  ;; This is a true unit test - no real API calls, no real API key required
+  (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
+         (temp-file (make-temp-file "tts-unit-success-" nil ".mp3"))
+         (original-call-process (symbol-function 'call-process))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+    (unwind-protect
+        (progn
+          ;; Mock API key reading to return dummy key
+          (fset 'elevenlabs-tts--read-api-key
+                (lambda () "sk-dummy-api-key-for-unit-test"))
+          
+          ;; Mock call-process to simulate successful curl with valid MP3 response
+          (fset 'call-process
+                (lambda (program &optional infile destination display &rest args)
+                  (when (and (string-equal program "curl")
+                             (cl-find "-o" args :test #'string=))
+                    ;; Create valid MP3 file
+                    (let* ((o-index (cl-position "-o" args :test #'string=))
+                           (ofile (and o-index (nth (1+ o-index) args))))
+                      (when ofile
+                        (with-temp-file ofile
+                          (set-buffer-multibyte nil)
+                          (insert (string 255 251 144 0))  ; MP3 frame sync
+                          (insert (make-string 1000 0)))))
+                    ;; Write successful HTTP status
+                    (when destination
+                      (with-temp-buffer
+                        (insert "HTTP_CODE:200\n")
+                        (write-region (point-min) (point-max) destination))))
+                  0))  ; Return success
+          
+          ;; Mock playback prompt
+          (cl-letf (((symbol-function 'elevenlabs-tts--prompt-for-playback)
+                     (lambda (filename) nil)))
+            (let ((result (elevenlabs-tts--make-api-request-sync voice-id "Unit test text" temp-file)))
+              (should result)
+              (should (file-exists-p temp-file))
+              (should (> (nth 7 (file-attributes temp-file)) 100)))))
+      
+      ;; Restore original functions
+      (fset 'call-process original-call-process)
+      (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))))
+
+(ert-deftest test-elevenlabs-tts-unit-api-request-http-error ()
+  "Test API request with HTTP error response (unit test)."
+  (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
+         (temp-file (make-temp-file "tts-unit-error-" nil ".mp3"))
+         (original-call-process (symbol-function 'call-process))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+    (unwind-protect
+        (progn
+          ;; Mock API key reading
+          (fset 'elevenlabs-tts--read-api-key
+                (lambda () "sk-dummy-api-key-for-unit-test"))
+          
+          ;; Mock call-process to simulate HTTP 402 error
+          (fset 'call-process
+                (lambda (program &optional infile destination display &rest args)
+                  (when (and (string-equal program "curl")
+                             (cl-find "-o" args :test #'string=))
+                    ;; Create JSON error response
+                    (let* ((o-index (cl-position "-o" args :test #'string=))
+                           (ofile (and o-index (nth (1+ o-index) args))))
+                      (when ofile
+                        (with-temp-file ofile
+                          (insert "{\"detail\": \"Unit test: insufficient credits\"}"))))
+                    ;; Write error HTTP status
+                    (when destination
+                      (with-temp-buffer
+                        (insert "HTTP_CODE:402\n")
+                        (write-region (point-min) (point-max) destination))))
+                  0))  ; Curl itself succeeds
+          
+          (let ((result (elevenlabs-tts--make-api-request-sync voice-id "Unit test text" temp-file)))
+            (should (null result))  ; Should fail due to HTTP error
+            (should-not (file-exists-p temp-file))))  ; Error file should be cleaned up
+      
+      ;; Restore original functions
+      (fset 'call-process original-call-process)
+      (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))))
+
+(ert-deftest test-elevenlabs-tts-unit-api-request-no-api-key ()
+  "Test API request failure when no API key is available (unit test)."
+  (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
+         (temp-file (make-temp-file "tts-unit-nokey-" nil ".mp3"))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+    (unwind-protect
+        (progn
+          ;; Mock API key reading to simulate missing key file
+          (fset 'elevenlabs-tts--read-api-key
+                (lambda () (error "API key file not found: unit test simulation")))
+          
+          (should-error (elevenlabs-tts--make-api-request-sync voice-id "Unit test text" temp-file)))
+      
+      ;; Restore original function
+      (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))))
+
+(ert-deftest test-elevenlabs-tts-unit-api-request-invalid-response ()
+  "Test API request with invalid MP3 response (unit test)."
+  (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
+         (temp-file (make-temp-file "tts-unit-invalid-" nil ".mp3"))
+         (original-call-process (symbol-function 'call-process))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+    (unwind-protect
+        (progn
+          ;; Mock API key reading
+          (fset 'elevenlabs-tts--read-api-key
+                (lambda () "sk-dummy-api-key-for-unit-test"))
+          
+          ;; Mock call-process to simulate HTTP 200 but with invalid MP3 data
+          (fset 'call-process
+                (lambda (program &optional infile destination display &rest args)
+                  (when (and (string-equal program "curl")
+                             (cl-find "-o" args :test #'string=))
+                    ;; Create invalid response (text instead of MP3)
+                    (let* ((o-index (cl-position "-o" args :test #'string=))
+                           (ofile (and o-index (nth (1+ o-index) args))))
+                      (when ofile
+                        (with-temp-file ofile
+                          (insert "This is not an MP3 file - unit test"))))
+                    ;; Write successful HTTP status
+                    (when destination
+                      (with-temp-buffer
+                        (insert "HTTP_CODE:200\n")
+                        (write-region (point-min) (point-max) destination))))
+                  0))
+          
+          (let ((result (elevenlabs-tts--make-api-request-sync voice-id "Unit test text" temp-file)))
+            (should (null result))  ; Should fail due to invalid MP3
+            (should-not (file-exists-p temp-file))))  ; Invalid file should be cleaned up
+      
+      ;; Restore original functions
+      (fset 'call-process original-call-process)
+      (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (when (file-exists-p temp-file)
+        (delete-file temp-file)))))
+
 ;;; Error Handling Tests
 
 (ert-deftest test-elevenlabs-tts-is-valid-mp3-file-valid ()
@@ -343,10 +499,12 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
   (let ((test-file (make-temp-file "test-mp3-" nil ".mp3")))
     (unwind-protect
         (progn
-          ;; Write valid MP3 magic bytes
+          ;; Write valid ID3v2 header with enough data (need >10 bytes)
           (with-temp-file test-file
             (set-buffer-multibyte nil)
-            (insert "ID3\x03\x00\x00\x00\x00\x00\x00")) ; ID3v2 header
+            ;; ID3v2 header: "ID3" + version + flags + size (10 bytes) + some data
+            (insert (string ?I ?D ?3 3 0 0 0 0 0 20)) ; ID3v2.3, size=20
+            (insert (make-string 20 0))) ; Add 20 bytes of padding
           (should (elevenlabs-tts--is-valid-mp3-file test-file)))
       (when (file-exists-p test-file)
         (delete-file test-file)))))
@@ -356,10 +514,11 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
   (let ((test-file (make-temp-file "test-mp3-" nil ".mp3")))
     (unwind-protect
         (progn
-          ;; Write MP3 frame sync bytes
+          ;; Write MP3 frame sync bytes with enough data (need >10 bytes)
           (with-temp-file test-file
             (set-buffer-multibyte nil)
-            (insert "\xFF\xFB\x90\x00\x00\x00\x00\x00\x00\x00")) ; MP3 frame sync
+            (insert (string 255 251 144 0))  ; MP3 frame sync bytes
+            (insert (make-string 20 0)))     ; Add padding to make file >10 bytes
           (should (elevenlabs-tts--is-valid-mp3-file test-file)))
       (when (file-exists-p test-file)
         (delete-file test-file)))))
@@ -424,8 +583,8 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
   (should (string-equal (elevenlabs-tts--format-api-error-message 500 nil)
                        "Internal Server Error")))
 
-(ert-deftest test-elevenlabs-tts-curl-error-handling-http-error ()
-  "Test curl error handling with HTTP error response."
+(ert-deftest test-elevenlabs-tts-unit-curl-error-handling-http-error ()
+  "Test curl error handling with HTTP error response (mocked unit test)."
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-error-test-" nil ".mp3"))
          (original-call-process (symbol-function 'call-process)))
@@ -457,8 +616,8 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
       (when (file-exists-p temp-file)
         (delete-file temp-file)))))
 
-(ert-deftest test-elevenlabs-tts-curl-error-handling-invalid-mp3 ()
-  "Test curl error handling when response is not valid MP3."
+(ert-deftest test-elevenlabs-tts-unit-curl-error-handling-invalid-mp3 ()
+  "Test curl error handling when response is not valid MP3 (mocked unit test)."
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-invalid-test-" nil ".mp3"))
          (original-call-process (symbol-function 'call-process)))
@@ -501,7 +660,14 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
       (should-error (elevenlabs-tts--read-api-key)))))
 
 (ert-deftest test-elevenlabs-tts-integration-voice-generation ()
-  "Test actual voice generation with API (integration test)."
+  "Test actual voice generation with API (integration test).
+
+This test requires:
+- Valid API key in ~/.config/emacs-tts/elevenlabs-api-key
+- Sufficient credits in ElevenLabs account
+- Network connectivity
+
+The test will FAIL if API returns errors (insufficient credits, invalid key, etc.)."
   :tags '(integration)
   (skip-unless (file-exists-p (expand-file-name elevenlabs-tts-api-key-file)))
   (let* ((temp-dir (make-temp-file "tts-integration-" t))
@@ -515,11 +681,10 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
           (cl-letf (((symbol-function 'elevenlabs-tts--prompt-for-playback)
                      (lambda (filename) nil)))
             (let ((result (elevenlabs-tts--make-api-request-sync voice-id test-text output-file)))
-              (if result
-                  (progn
-                    (should (file-exists-p output-file))
-                    (should (> (nth 7 (file-attributes output-file)) 1000))) ; File should be > 1KB
-                (message "Integration test skipped - API call failed")))))
+              ;; Integration test should FAIL if API call fails
+              (should result) ; This will fail the test if API returns error
+              (should (file-exists-p output-file))
+              (should (> (nth 7 (file-attributes output-file)) 1000)))))
       ;; Cleanup
       (when (file-exists-p temp-dir)
         (delete-directory temp-dir t)))))

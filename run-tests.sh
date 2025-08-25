@@ -2,8 +2,6 @@
 
 # Test runner script for ElevenLabs TTS package
 
-set -e
-
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
@@ -21,32 +19,123 @@ TEST_FILE="test-elevenlabs-tts.el"
 echo -e "${BLUE}ElevenLabs TTS Test Runner${NC}"
 echo "================================"
 
+# Track if any tests have failed
+HAS_FAILED=0
+
 # Function to run tests
 run_tests() {
     local test_type="$1"
     local selector="$2"
+    local output_file
+    local exit_code
     
     echo -e "\n${YELLOW}Running $test_type tests...${NC}"
     
+    # Create temp file for output
+    output_file=$(mktemp)
+    
     if [ -n "$selector" ]; then
-        if $EMACS -batch -l "$PACKAGE_FILE" -l "$TEST_FILE" \
+        $EMACS -batch -l "$PACKAGE_FILE" -l "$TEST_FILE" \
               --eval "(ert-run-tests-batch-and-exit $selector)" \
-              2>&1 | sed 's/^/  /'; then
-            echo -e "${GREEN}✓ $test_type tests passed${NC}"
-        else
-            echo -e "${RED}✗ $test_type tests failed${NC}"
-            exit 1
-        fi
+              > "$output_file" 2>&1
+        exit_code=$?
     else
-        if $EMACS -batch -l "$PACKAGE_FILE" -l "$TEST_FILE" \
+        $EMACS -batch -l "$PACKAGE_FILE" -l "$TEST_FILE" \
               -f ert-run-tests-batch-and-exit \
-              2>&1 | sed 's/^/  /'; then
-            echo -e "${GREEN}✓ $test_type tests passed${NC}"
-        else
-            echo -e "${RED}✗ $test_type tests failed${NC}"
-            exit 1
+              > "$output_file" 2>&1
+        exit_code=$?
+    fi
+    
+    # Display output with indentation
+    sed 's/^/  /' "$output_file"
+    
+    # Check results and provide appropriate feedback
+    if [ $exit_code -eq 0 ]; then
+        echo -e "${GREEN}✓ $test_type tests passed${NC}"
+    else
+        echo -e "${RED}✗ $test_type tests failed${NC}"
+        HAS_FAILED=1
+        
+        # For integration tests, provide helpful error messages
+        if [[ "$test_type" == *"Integration"* ]]; then
+            if grep -q "insufficient credits" "$output_file"; then
+                echo -e "${YELLOW}💡 Note: API call failed due to insufficient credits. Add more credits to your ElevenLabs account.${NC}"
+            elif grep -q "Unauthorized" "$output_file" || grep -q "401" "$output_file"; then
+                echo -e "${YELLOW}💡 Note: API key appears to be invalid. Check your API key in ~/.config/emacs-tts/elevenlabs-api-key${NC}"
+            elif grep -q "rate limit" "$output_file" || grep -q "429" "$output_file"; then
+                echo -e "${YELLOW}💡 Note: Rate limit exceeded. Wait a moment and try again.${NC}"
+            elif grep -q "network\|connection\|resolve" "$output_file"; then
+                echo -e "${YELLOW}💡 Note: Network connectivity issue. Check your internet connection.${NC}"
+            fi
         fi
     fi
+    
+    # Clean up temp file
+    rm -f "$output_file"
+}
+
+# Manual test function
+run_manual_test() {
+    echo -e "${BLUE}ElevenLabs TTS Manual Test${NC}"
+    echo "============================"
+    echo ""
+    
+    # Clean up any existing test files
+    echo -e "${YELLOW}🧹 Cleaning up test files...${NC}"
+    rm -f test-tts-output.mp3
+    
+    echo -e "${YELLOW}🔊 Generating audio with Rachel voice and auto-playing...${NC}"
+    echo ""
+    
+    # Create temp file for output
+    output_file=$(mktemp)
+    
+    # Run the manual TTS test
+    $EMACS -batch -l "$PACKAGE_FILE" \
+          --eval '(progn 
+                    (setq elevenlabs-tts-enable-playback t)
+                    (cl-letf (((symbol-function (quote read-string)) (lambda (prompt) "y")))
+                      (let ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
+                            (test-phrase "Hello, this is a test of the ElevenLabs text to speech system. Testing one, two, three.")
+                            (output-file "test-tts-output.mp3"))
+                        (if (elevenlabs-tts--make-api-request-sync voice-id test-phrase output-file)
+                            (progn
+                              (message "✅ Audio generated: %s" output-file)
+                              (when (file-exists-p output-file)
+                                (message "📊 File size: %d bytes" (nth 7 (file-attributes output-file)))))
+                          (message "❌ Audio generation failed")))))' \
+          > "$output_file" 2>&1
+    
+    local exit_code=$?
+    
+    # Display filtered output
+    if [ -s "$output_file" ]; then
+        grep -E "(✅|❌|📊|🔊|Making request|Playing|Audio)" "$output_file" || echo -e "${YELLOW}ℹ️  Processing complete${NC}"
+    fi
+    
+    echo ""
+    
+    # Check results
+    if [ -f "test-tts-output.mp3" ]; then
+        echo -e "${GREEN}✅ Test audio file created successfully!${NC}"
+        file_size=$(ls -lh "test-tts-output.mp3" | awk '{print $5}')
+        echo -e "${YELLOW}📁 File: test-tts-output.mp3 ($file_size)${NC}"
+        echo -e "${BLUE}🎵 Audio should have played automatically${NC}"
+        echo ""
+        echo -e "${GREEN}🎉 Manual test completed successfully!${NC}"
+    else
+        echo -e "${RED}❌ Test audio file was not created${NC}"
+        echo -e "${YELLOW}💡 This could be due to:${NC}"
+        echo "   - Insufficient ElevenLabs credits"
+        echo "   - Invalid API key"
+        echo "   - Network connectivity issues"
+        echo ""
+        echo -e "${RED}❌ Manual test failed${NC}"
+        HAS_FAILED=1
+    fi
+    
+    # Clean up temp file
+    rm -f "$output_file"
 }
 
 # Parse command line arguments
@@ -96,13 +185,23 @@ case "${1:-all}" in
         run_tests "Integration API Key" "\"integration-api-key-reading\""
         run_tests "Integration Voice Gen" "\"integration-voice-generation\""
         ;;
+    "manual")
+        run_manual_test
+        ;;
     "all"|*)
         echo "Running all tests..."
         run_tests "All"
         ;;
 esac
 
-echo -e "\n${GREEN}All tests completed successfully!${NC}"
+# Final result summary
+if [ $HAS_FAILED -eq 1 ]; then
+    echo -e "\n${RED}❌ Some tests failed!${NC}"
+    echo "Please review the failures above and fix any issues."
+    exit 1
+else
+    echo -e "\n${GREEN}✅ All tests completed successfully!${NC}"
+fi
 
 # Show test coverage info for playback tests
 if [ "${1:-all}" = "playback" ] || [ "${1:-all}" = "all" ]; then
