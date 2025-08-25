@@ -6,6 +6,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 - Convert selected text to speech using ElevenLabs' premium voices
 - Support for both male and female voices
+- Adjustable speech speed: Buffer-local speed control from 0.7x (slow) to 1.2x (fast)
 - Comprehensive error handling with user-friendly messages for common issues
 - Automatic MP3 file validation and corrupted file detection
 - Optional audio playback with support for multiple players (ffplay, mplayer, mpv, vlc, etc.)
@@ -114,8 +115,74 @@ Customize the voice parameters:
       '((stability . 0.7)        ; 0.0-1.0, higher = more stable
         (similarity_boost . 0.6) ; 0.0-1.0, higher = more similar to original
         (style . 0.2)            ; 0.0-1.0, style exaggeration
-        (use_speaker_boost . t))) ; boolean, enhance clarity
+        (use_speaker_boost . t)  ; boolean, enhance clarity
+        (speed . 1.0)))          ; 0.7-1.2, speech speed (1.0 = normal)
 ```
+
+### Playback Configuration
+
+Control how audio files are played after generation:
+
+```elisp
+;; Enable/disable playback prompting (default: t)
+(setq elevenlabs-tts-enable-playback t)
+
+;; Enable automatic playback without prompting (default: nil)
+;; When enabled, audio files are played immediately after generation
+;; This setting overrides elevenlabs-tts-enable-playback when enabled
+(setq elevenlabs-tts-auto-play nil)
+
+;; Toggle functions available:
+;; M-x elevenlabs-tts-toggle-playback     - Toggle playback prompting
+;; M-x elevenlabs-tts-toggle-auto-play   - Toggle automatic playback
+```
+
+#### Playback Modes
+
+| Setting | `enable-playback` | `auto-play` | Behavior |
+|---------|------------------|-------------|----------|
+| **Prompt** (default) | `t` | `nil` | Prompts "Play audio? [y/N]" |
+| **Auto-play** | any | `t` | Plays immediately, no prompt |
+| **Silent** | `nil` | `nil` | Just saves file, no playback |
+
+**Note**: `auto-play` takes priority over `enable-playback` when both are configured.
+
+### Speech Speed Control
+
+The package supports **buffer-local speech speed control** with speeds ranging from 0.7x (slow) to 1.2x (fast), matching ElevenLabs API constraints.
+
+#### Commands
+- `M-x elevenlabs-tts-set-speech-speed` - Set or view the speech speed for the current buffer
+
+#### How it works
+
+1. **Per-buffer speeds**: Each buffer maintains its own speech speed setting independently
+2. **Interactive selection**: Choose from preset speeds or enter custom values
+3. **Range validation**: Speed values are validated against ElevenLabs API limits (0.7-1.2)
+4. **Current speed default**: The speed prompt always shows your current speed as the default option
+
+#### Speed Options
+
+| Option | Speed | Description |
+|--------|-------|-------------|
+| Slow | 0.7x | Slowest supported speed |
+| Slower | 0.8x | Moderately slow |
+| Bit Slower | 0.9x | Slightly slow |
+| Normal | 1.0x | Default natural speed |
+| Bit Faster | 1.1x | Slightly fast |
+| Fast | 1.2x | Fastest supported speed |
+| Current | varies | Keep current buffer speed |
+| Custom... | 0.7-1.2 | Enter exact value |
+
+#### Examples
+
+```
+Buffer A (article.txt): Speed set to 0.8x (slower speech for complex content)
+Buffer B (notes.md): Speed set to 1.2x (faster speech for quick reviews)
+Buffer C (code.py): Default speed 1.0x (normal speed)
+```
+
+Each buffer's speed setting persists until changed or the buffer is closed.
 
 ## Usage
 
@@ -132,6 +199,7 @@ Customize the voice parameters:
 
 #### Commands
 - `M-x elevenlabs-tts-set-output-directory` - Set or view the output directory for the current buffer
+- `M-x elevenlabs-tts-set-speech-speed` - Set or view the speech speed for the current buffer
 
 #### How it works
 
@@ -194,10 +262,11 @@ Files are saved in the same directory as the current buffer, or in the current w
 3. Press `C-c s`
 4. **Choose output directory**: First time, you'll be prompted for output directory (e.g., accept default `/home/user/documents/` or choose custom like `/home/user/audio/`)
 5. **Choose voice** from completion list (e.g., Josh, Rachel, etc.)
-6. **Confirm file path**: `/home/user/documents/article-0001-josh.mp3` (or edit as needed)
-7. Wait for generation
-8. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-josh.mp3"
-9. Next selection with Rachel creates: `article-0002-rachel.mp3` (continues sequence in same directory)
+6. **Choose speech speed**: Select from presets (Slow, Normal, Fast) or current speed, or choose "Custom..." for exact values
+7. **Confirm file path**: `/home/user/documents/article-0001-josh.mp3` (or edit as needed)
+8. Wait for generation
+9. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-josh.mp3"
+10. Next selection with Rachel creates: `article-0002-rachel.mp3` (continues sequence in same directory)
 
 ## Troubleshooting
 
@@ -250,9 +319,16 @@ With debug mode enabled, you'll see detailed information including:
 The package includes a built-in manual test:
 
 ```bash
-# Quick manual test (requires API key and credits)
+# Quick manual test - generates three audio files at different speeds (requires API key and credits)
 make test-manual
 ```
+
+This generates three test files:
+- `test-tts-normal.mp3` - Normal speed (1.0x) 
+- `test-tts-slow.mp3` - Slow speed (0.7x)
+- `test-tts-fast.mp3` - Fast speed (1.2x)
+
+Listen to all three files to verify the speech speed differences work correctly.
 
 #### Interactive Test
 Create a simple test manually:
@@ -268,23 +344,23 @@ Run the full test suite:
 
 ```bash
 # Run all tests (unit + integration)
-make test                     # 36 total tests: 34 unit + 2 integration
+make test                     # 53 total tests: 50 unit + 3 integration
 
 # Run only unit tests (no API key required)
-make test-unit               # 34 unit tests with complete mocking
+make test-unit               # 50 unit tests with complete mocking
 
 # Run only integration tests (requires API key and credits)
-make test-integration        # 2 integration tests with real API calls
+make test-integration        # 3 integration tests with real API calls
 
 # Test audio playback functionality
 make test-playback          # Audio player detection and error handling
 ```
 
 **Test Suite Organization:**
-- **Unit Tests** (34): Complete mocking, no API key required, test internal functionality
-- **Integration Tests** (2): Real API calls, require valid API key and credits
+- **Unit Tests** (50): Complete mocking, no API key required, test internal functionality including speech speed control
+- **Integration Tests** (3): Real API calls, require valid API key and credits, including speed validation with API
 - **ERT Tags**: Tests organized with `:tags '(unit)` and `:tags '(integration)` for clean separation
-- **Error Scenarios**: Comprehensive testing of audio playback errors, API failures, and edge cases
+- **Error Scenarios**: Comprehensive testing of audio playback errors, API failures, speed validation, and edge cases
 
 ## Security Features
 

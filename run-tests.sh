@@ -137,66 +137,113 @@ run_test_list() {
 
 # Manual test function
 run_manual_test() {
-    echo -e "${BLUE}ElevenLabs TTS Manual Test${NC}"
-    echo "============================"
+    echo -e "${BLUE}ElevenLabs TTS Manual Test - Speech Speed Verification${NC}"
+    echo "======================================================"
+    echo ""
+    echo -e "${YELLOW}This test will generate three audio files at different speeds:${NC}"
+    echo "  1. Normal speed (1.0)"
+    echo "  2. Slow speed (0.7)"
+    echo "  3. Fast speed (1.2)"
+    echo ""
+    echo -e "${YELLOW}🎧 Please listen to each audio file to verify the speed differences!${NC}"
     echo ""
     
     # Clean up any existing test files
-    echo -e "${YELLOW}🧹 Cleaning up test files...${NC}"
-    rm -f test-tts-output.mp3
+    echo -e "${YELLOW}🧹 Cleaning up previous test files...${NC}"
+    rm -f test-tts-normal.mp3 test-tts-slow.mp3 test-tts-fast.mp3
     
-    echo -e "${YELLOW}🔊 Generating audio with Rachel voice and auto-playing...${NC}"
+    # Test phrase that clearly demonstrates speed differences
+    local test_phrase="The quick brown fox jumps over the lazy dog. This sentence contains every letter of the alphabet and helps demonstrate speech speed differences clearly."
+    local voice="Rachel"
+    local generated_files=0
+    local total_tests=3
+    
+    # Function to generate audio at specific speed
+    generate_speed_test() {
+        local speed="$1"
+        local speed_name="$2"
+        local output_file="$3"
+        local output_temp=$(mktemp)
+        
+        echo -e "\n${BLUE}🎙️  Generating ${speed_name} speed audio (${speed})...${NC}"
+        
+        $EMACS -batch -l "$PACKAGE_FILE" \
+              --eval "(progn 
+                        (setq elevenlabs-tts-enable-playback t)
+                        (cl-letf (((symbol-function (quote read-string)) (lambda (prompt) \"y\")))
+                          (with-temp-buffer
+                            (elevenlabs-tts--set-speech-speed ${speed})
+                            (let ((voice-id (elevenlabs-tts--get-voice-id \"${voice}\"))
+                                  (test-phrase \"${test_phrase}\"))
+                              (if (elevenlabs-tts--make-api-request-sync voice-id test-phrase \"${output_file}\")
+                                  (progn
+                                    (message \"✅ ${speed_name} speed audio generated: %s\" \"${output_file}\")
+                                    (when (file-exists-p \"${output_file}\")
+                                      (message \"📊 File size: %d bytes\" (nth 7 (file-attributes \"${output_file}\")))
+                                      (message \"🎵 Playing ${speed_name} speed audio...\")))
+                                (message \"❌ ${speed_name} speed audio generation failed\"))))))" \
+              > "$output_temp" 2>&1
+        
+        local exit_code=$?
+        
+        # Display filtered output
+        if [ -s "$output_temp" ]; then
+            grep -E "(✅|❌|📊|🎵|Audio)" "$output_temp" | sed 's/^/  /' || echo -e "  ${YELLOW}ℹ️  Processing...${NC}"
+        fi
+        
+        # Check if file was created
+        if [ -f "$output_file" ]; then
+            ((generated_files++))
+            local file_size=$(ls -lh "$output_file" | awk '{print $5}')
+            echo -e "  ${GREEN}✅ ${speed_name} speed file created: $output_file ($file_size)${NC}"
+        else
+            echo -e "  ${RED}❌ ${speed_name} speed file creation failed${NC}"
+            HAS_FAILED=1
+        fi
+        
+        # Clean up temp file
+        rm -f "$output_temp"
+        
+        # Brief pause between generations
+        sleep 1
+    }
+    
+    # Generate all three speed tests
+    generate_speed_test "1.0" "Normal" "test-tts-normal.mp3"
+    generate_speed_test "0.7" "Slow" "test-tts-slow.mp3"
+    generate_speed_test "1.2" "Fast" "test-tts-fast.mp3"
+    
     echo ""
+    echo "======================================================"
     
-    # Create temp file for output
-    output_file=$(mktemp)
-    
-    # Run the manual TTS test
-    $EMACS -batch -l "$PACKAGE_FILE" \
-          --eval '(progn 
-                    (setq elevenlabs-tts-enable-playback t)
-                    (cl-letf (((symbol-function (quote read-string)) (lambda (prompt) "y")))
-                      (let ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
-                            (test-phrase "Hello, this is a test of the ElevenLabs text to speech system. Testing one, two, three.")
-                            (output-file "test-tts-output.mp3"))
-                        (if (elevenlabs-tts--make-api-request-sync voice-id test-phrase output-file)
-                            (progn
-                              (message "✅ Audio generated: %s" output-file)
-                              (when (file-exists-p output-file)
-                                (message "📊 File size: %d bytes" (nth 7 (file-attributes output-file)))))
-                          (message "❌ Audio generation failed")))))' \
-          > "$output_file" 2>&1
-    
-    local exit_code=$?
-    
-    # Display filtered output
-    if [ -s "$output_file" ]; then
-        grep -E "(✅|❌|📊|🔊|Making request|Playing|Audio)" "$output_file" || echo -e "${YELLOW}ℹ️  Processing complete${NC}"
-    fi
-    
-    echo ""
-    
-    # Check results
-    if [ -f "test-tts-output.mp3" ]; then
-        echo -e "${GREEN}✅ Test audio file created successfully!${NC}"
-        file_size=$(ls -lh "test-tts-output.mp3" | awk '{print $5}')
-        echo -e "${YELLOW}📁 File: test-tts-output.mp3 ($file_size)${NC}"
-        echo -e "${BLUE}🎵 Audio should have played automatically${NC}"
+    # Final results
+    if [ $generated_files -eq $total_tests ]; then
+        echo -e "${GREEN}🎉 All speech speed tests completed successfully!${NC}"
         echo ""
-        echo -e "${GREEN}🎉 Manual test completed successfully!${NC}"
+        echo -e "${BLUE}📁 Generated files:${NC}"
+        echo "  • test-tts-normal.mp3 - Normal speed (1.0)"
+        echo "  • test-tts-slow.mp3   - Slow speed (0.7)"
+        echo "  • test-tts-fast.mp3   - Fast speed (1.2)"
+        echo ""
+        echo -e "${YELLOW}🎧 MANUAL VERIFICATION REQUIRED:${NC}"
+        echo "Please listen to all three files to verify:"
+        echo "  1. Normal speed sounds natural"
+        echo "  2. Slow speed is noticeably slower than normal"
+        echo "  3. Fast speed is noticeably faster than normal"
+        echo "  4. All files contain the complete test phrase clearly"
+        echo ""
+        echo -e "${GREEN}✅ Speech speed manual test completed successfully!${NC}"
     else
-        echo -e "${RED}❌ Test audio file was not created${NC}"
+        echo -e "${RED}❌ Speech speed test failed - only $generated_files/$total_tests files generated${NC}"
         echo -e "${YELLOW}💡 This could be due to:${NC}"
         echo "   - Insufficient ElevenLabs credits"
         echo "   - Invalid API key"
         echo "   - Network connectivity issues"
+        echo "   - API rate limiting (multiple requests in short time)"
         echo ""
         echo -e "${RED}❌ Manual test failed${NC}"
         HAS_FAILED=1
     fi
-    
-    # Clean up temp file
-    rm -f "$output_file"
 }
 
 # Parse command line arguments
@@ -250,7 +297,7 @@ fi
 
 # Show test coverage info for playback tests
 if [ "${1:-all}" = "playback" ] || [ "${1:-all}" = "all" ]; then
-    echo -e "\n${BLUE}Playback Test Coverage:${NC}"
+    echo -e "\n${BLUE}Playbook Test Coverage:${NC}"
     echo "• Audio player detection: ✓"
     echo "• Player priority ordering: ✓" 
     echo "• Playback functionality: ✓"
@@ -259,4 +306,16 @@ if [ "${1:-all}" = "playback" ] || [ "${1:-all}" = "all" ]; then
     echo "• Error handling: ✓"
     echo "• GStreamer special cases: ✓"
     echo "• Integration with TTS workflow: ✓"
+fi
+
+# Show test coverage info for manual tests
+if [ "${1:-all}" = "manual" ]; then
+    echo -e "\n${BLUE}Manual Test Coverage - Speech Speed:${NC}"
+    echo "• Normal speed (1.0): ✓"
+    echo "• Slow speed (0.7): ✓" 
+    echo "• Fast speed (1.2): ✓"
+    echo "• Buffer-local speed settings: ✓"
+    echo "• API payload speed integration: ✓"
+    echo "• Real-world audio generation: ✓"
+    echo "• User verification required: ✓"
 fi

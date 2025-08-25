@@ -81,8 +81,11 @@ Get an API key at https://elevenlabs.io/"
   '((stability . 0.5)
     (similarity_boost . 0.5)
     (style . 0.0)
-    (use_speaker_boost . t))
-  "Default voice settings for text-to-speech generation."
+    (use_speaker_boost . t)
+    (speed . 1.0))
+  "Default voice settings for text-to-speech generation.
+
+Speed ranges from 0.7 (slow) to 1.2 (fast), with 1.0 being normal speed."
   :type '(alist :key-type symbol :value-type (choice number boolean))
   :group 'elevenlabs-tts)
 
@@ -95,6 +98,14 @@ When non-nil, shows detailed curl output and request information."
 (defcustom elevenlabs-tts-enable-playback t
   "Enable automatic playback prompt after TTS generation.
 When non-nil, prompts user to play the generated audio file."
+  :type 'boolean
+  :group 'elevenlabs-tts)
+
+(defcustom elevenlabs-tts-auto-play nil
+  "Automatically play generated audio files without prompting.
+When non-nil, audio files are played immediately after generation.
+When nil, user is prompted whether to play the audio file.
+This setting overrides `elevenlabs-tts-enable-playback` when enabled."
   :type 'boolean
   :group 'elevenlabs-tts)
 
@@ -120,6 +131,12 @@ The first available player from this list will be used automatically."
 (defvar-local elevenlabs-tts-output-directory nil
   "Buffer-local output directory for TTS files.
 When nil, defaults to the directory of the current buffer file.
+This setting is maintained per buffer.")
+
+(defvar-local elevenlabs-tts-speech-speed nil
+  "Buffer-local speech speed for TTS generation.
+When nil, defaults to the speed from elevenlabs-tts-default-settings.
+Speed ranges from 0.7 (slow) to 1.2 (fast), with 1.0 being normal.
 This setting is maintained per buffer.")
 
 (defun elevenlabs-tts--read-api-key ()
@@ -206,6 +223,70 @@ Returns the selected directory, or nil if user wants default."
     (if (equal (expand-file-name selected-dir) (expand-file-name current-dir))
         current-dir
       selected-dir)))
+
+(defun elevenlabs-tts--get-speech-speed ()
+  "Get the speech speed for the current buffer.
+Uses buffer-local setting if set, otherwise defaults to the speed from default settings."
+  (or elevenlabs-tts-speech-speed
+      (cdr (assq 'speed elevenlabs-tts-default-settings))))
+
+(defun elevenlabs-tts--set-speech-speed (speed)
+  "Set the speech speed for the current buffer.
+If SPEED is nil, reset to default.
+SPEED should be a number between 0.7 and 1.2."
+  (if (null speed)
+      (setq elevenlabs-tts-speech-speed nil)
+    (if (and (numberp speed) (>= speed 0.7) (<= speed 1.2))
+        (setq elevenlabs-tts-speech-speed speed)
+      (error "Speed must be a number between 0.7 and 1.2"))))
+
+(defun elevenlabs-tts--prompt-for-speech-speed ()
+  "Prompt user for speech speed, showing current setting.
+Returns the selected speed as a number."
+  (let* ((current-speed (elevenlabs-tts--get-speech-speed))
+         (default-speed (cdr (assq 'speed elevenlabs-tts-default-settings)))
+         (is-default (equal current-speed default-speed))
+         (speed-options '(("Slow (0.7)" . 0.7)
+                         ("Slower (0.8)" . 0.8)
+                         ("Bit Slower (0.9)" . 0.9)
+                         ("Normal (1.0)" . 1.0)
+                         ("Bit Faster (1.1)" . 1.1)
+                         ("Fast (1.2)" . 1.2)
+                         ("Custom..." . custom)))
+         ;; Add current speed option to the list if it's not already there
+         (current-option (format "Current (%.2fx)" current-speed))
+         (all-options (cons (cons current-option current-speed) speed-options))
+         (prompt (if is-default
+                     (format "Speech speed (current: default %.2fx): " current-speed)
+                   (format "Speech speed (current: %.2fx): " current-speed)))
+         (selection (completing-read prompt (mapcar #'car all-options) nil t "" nil current-option))
+         (speed-value (cdr (assoc selection all-options))))
+    
+    ;; If selection is empty or nil, use current speed
+    (cond
+     ((or (null selection) (string-empty-p selection))
+      current-speed)
+     ((eq speed-value 'custom)
+      ;; Handle custom speed input
+      (let ((custom-speed (read-number "Enter custom speed (0.7-1.2): " current-speed)))
+        (if (and (numberp custom-speed) (>= custom-speed 0.7) (<= custom-speed 1.2))
+            custom-speed
+          (progn
+            (message "Speed must be between 0.7 and 1.2. Using current speed.")
+            current-speed))))
+     ((null speed-value)
+      ;; If speed-value is nil (shouldn't happen with the current option added), use current speed
+      current-speed)
+     (t speed-value))))
+
+(defun elevenlabs-tts--get-current-voice-settings ()
+  "Get current voice settings, incorporating buffer-local speed if set.
+Returns an alist with current voice settings including buffer-local speed."
+  (let ((base-settings (copy-alist elevenlabs-tts-default-settings))
+        (current-speed (elevenlabs-tts--get-speech-speed)))
+    ;; Update speed in settings if we have a buffer-local value
+    (setf (cdr (assq 'speed base-settings)) current-speed)
+    base-settings))
 
 (defun elevenlabs-tts--get-base-filename ()
   "Get a base filename for the audio file based on current buffer."
@@ -345,9 +426,21 @@ ERROR-DETAIL can be a string from API response or nil."
 (defun elevenlabs-tts--prompt-for-playback (filename)
   "Prompt user whether to play the audio file FILENAME.
 Returns t if user wants to play, nil otherwise.
-Defaults to 'N' (no), but 'y' + enter plays the audio."
-  (when elevenlabs-tts-enable-playback
-    (let ((available-player (elevenlabs-tts--find-available-audio-player)))
+Defaults to 'N' (no), but 'y' + enter plays the audio.
+If `elevenlabs-tts-auto-play` is enabled, plays automatically without prompting."
+  (let ((available-player (elevenlabs-tts--find-available-audio-player)))
+    (cond
+     ;; Auto-play enabled - play immediately if player is available
+     (elevenlabs-tts-auto-play
+      (if available-player
+          (progn
+            (elevenlabs-tts--play-audio-file filename)
+            t)
+        (progn
+          (message "Audio saved to: %s (no player available for auto-play)" filename)
+          nil)))
+     ;; Auto-play disabled but playback prompting enabled
+     (elevenlabs-tts-enable-playback
       (if available-player
           (let* ((player-path (car available-player))
                  (player-name (file-name-nondirectory player-path))
@@ -362,7 +455,11 @@ Defaults to 'N' (no), but 'y' + enter plays the audio."
               nil)))
         (progn
           (message "Audio saved to: %s (no player available for playback)" filename)
-          nil)))))
+          nil)))
+     ;; Both auto-play and playback prompting disabled
+     (t
+      (message "Audio saved to: %s" filename)
+      nil))))
 
 (defun elevenlabs-tts--make-api-request-sync (voice-id text filename)
   "Make synchronous API request to ElevenLabs with VOICE-ID and TEXT.
@@ -384,7 +481,7 @@ Properly escapes filenames to prevent shell injection."
          (json-payload (json-encode
                         `((text . ,text)
                           (model_id . "eleven_monolingual_v1")
-                          (voice_settings . ,elevenlabs-tts-default-settings))))
+                          (voice_settings . ,(elevenlabs-tts--get-current-voice-settings)))))
          (temp-json-file (make-temp-file "tts-json-" nil ".json"))
          (temp-header-file (make-temp-file "tts-header-" nil ".txt"))
          (temp-output (make-temp-file "tts-output-"))
@@ -527,7 +624,7 @@ Properly escapes filenames to prevent shell injection."
            (json-encode
             `((text . ,text)
               (model_id . "eleven_monolingual_v1")
-              (voice_settings . ,elevenlabs-tts-default-settings)))
+              (voice_settings . ,(elevenlabs-tts--get-current-voice-settings))))
            'utf-8))
          (response-buffer))
     
@@ -621,7 +718,7 @@ Properly escapes filenames to prevent shell injection."
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection ()
   "Convert selected text to speech using ElevenLabs API.
-Interactive workflow: select output directory, select voice, confirm/edit output path, generate audio."
+Interactive workflow: select output directory, select voice, select speed, confirm/edit output path, generate audio."
   (interactive)
   (if (not (use-region-p))
       (message "Please select some text first")
@@ -634,6 +731,9 @@ Interactive workflow: select output directory, select voice, confirm/edit output
            ;; Combine all voices for selection
            (all-voices (append elevenlabs-tts-male-voices elevenlabs-tts-female-voices))
            (voice-name (completing-read "Select voice: " all-voices nil t))
+           ;; Prompt for speech speed and set it for this buffer
+           (selected-speed (elevenlabs-tts--prompt-for-speech-speed))
+           (_ (elevenlabs-tts--set-speech-speed selected-speed))
            (voice-id (elevenlabs-tts--get-voice-id voice-name))
            (base-name (elevenlabs-tts--get-base-filename))
            (default-filename (elevenlabs-tts--get-next-filename output-dir base-name voice-name))
@@ -649,7 +749,7 @@ Interactive workflow: select output directory, select voice, confirm/edit output
         (unless (file-exists-p final-output-dir)
           (make-directory final-output-dir t)))
       
-      (message "Generating speech with %s voice..." voice-name)
+      (message "Generating speech with %s voice at %.2fx speed..." voice-name selected-speed)
       
       ;; Make synchronous API call  
       (elevenlabs-tts--make-api-request-sync voice-id text filename))))
@@ -674,7 +774,7 @@ Uses the current buffer's output directory setting."
            (base-name (elevenlabs-tts--get-base-filename))
            (filename (elevenlabs-tts--get-next-filename output-dir base-name voice-name)))
       
-      (message "Generating speech with %s voice..." voice-name)
+      (message "Generating speech with %s voice at %.2fx speed..." voice-name (elevenlabs-tts--get-speech-speed))
       
       ;; Make synchronous API call
       (elevenlabs-tts--make-api-request-sync voice-id text filename))))
@@ -719,6 +819,27 @@ Prompts for a new directory. Enter empty string to reset to default."
             (message "Output directory set to: %s" new-dir)))))))
 
 ;;;###autoload
+(defun elevenlabs-tts-set-speech-speed ()
+  "Set or view the speech speed for the current buffer.
+Prompts for a new speed. Use 'Custom...' option to enter exact values."
+  (interactive)
+  (let* ((current-speed (elevenlabs-tts--get-speech-speed))
+         (default-speed (cdr (assq 'speed elevenlabs-tts-default-settings)))
+         (is-default (equal current-speed default-speed))
+         (selected-speed (elevenlabs-tts--prompt-for-speech-speed)))
+    
+    ;; Check if user selected the same speed
+    (if (equal selected-speed current-speed)
+        (message "Speech speed unchanged: %.2fx" current-speed)
+      (progn
+        (elevenlabs-tts--set-speech-speed selected-speed)
+        (let ((new-speed (elevenlabs-tts--get-speech-speed))
+              (new-is-default (equal (elevenlabs-tts--get-speech-speed) default-speed)))
+          (if new-is-default
+              (message "Speech speed reset to default: %.2fx" new-speed)
+            (message "Speech speed set to: %.2fx" new-speed)))))))
+
+;;;###autoload
 (defun elevenlabs-tts-toggle-debug ()
   "Toggle debug output for ElevenLabs TTS."
   (interactive)
@@ -731,6 +852,14 @@ Prompts for a new directory. Enter empty string to reset to default."
   (interactive)
   (setq elevenlabs-tts-enable-playback (not elevenlabs-tts-enable-playback))
   (message "ElevenLabs TTS playback prompt: %s" (if elevenlabs-tts-enable-playback "enabled" "disabled")))
+
+;;;###autoload
+(defun elevenlabs-tts-toggle-auto-play ()
+  "Toggle automatic playback of generated audio files.
+ When enabled, audio files are played immediately without prompting."
+  (interactive)
+  (setq elevenlabs-tts-auto-play (not elevenlabs-tts-auto-play))
+  (message "ElevenLabs TTS auto-play: %s" (if elevenlabs-tts-auto-play "enabled" "disabled")))
 
 ;;;###autoload
 (defun elevenlabs-tts-test-audio-players ()
