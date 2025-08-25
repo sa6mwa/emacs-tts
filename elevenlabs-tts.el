@@ -106,7 +106,7 @@ When non-nil, prompts user to play the generated audio file."
     ("mpv" . ("--no-video" "--really-quiet"))
     ("vlc" . ("--intf" "dummy" "--play-and-exit" "--quiet"))
     ("gst-play-1.0" . ("--quiet"))
-    ("gst-launch-1.0" . ("playbin" "uri=file://")))
+    ("gst-launch-1.0" . ("playbin")))
   "List of MP3-capable audio players with their command line options in order of preference.
 Each entry is a cons cell where the car is the executable name
 and the cdr is a list of command line arguments.
@@ -239,39 +239,46 @@ Returns t if playback was initiated successfully, nil otherwise."
                (player-args (cdr player-info))
                (player-name (file-name-nondirectory player-path))
                (expanded-filename (expand-file-name filename))
-               (command-args (append player-args (list expanded-filename))))
-          
-          (when elevenlabs-tts-debug
-            (message "Debug: Playing with %s: %s %s" 
-                     player-name player-path (mapconcat 'identity command-args " ")))
+               (command-args (append player-args (list expanded-filename)))
+               (temp-stderr (make-temp-file "audio-player-stderr-")))
           
           ;; Special handling for gst-launch-1.0 which needs file:// URI
           (when (string-equal player-name "gst-launch-1.0")
             (setq command-args 
                   (list "playbin" (format "uri=file://%s" expanded-filename))))
           
-          (condition-case error
+          (unwind-protect
               (progn
                 (message "🔊 Playing audio with %s..." player-name)
-                ;; Use call-process with full path to run the player and wait for it to finish
-                ;; This ensures non-GUI players exit properly
-                (let ((exit-code (apply 'call-process player-path nil nil nil command-args)))
+                (let ((exit-code (apply 'call-process player-path nil (list nil temp-stderr) nil command-args)))
                   (when elevenlabs-tts-debug
                     (message "Debug: Player %s exited with code: %d" player-name exit-code))
-                  (if (= exit-code 0)
-                      (progn
-                        (message "✅ Playback completed")
-                        t)
-                    (progn
-                      (message "⚠️  Player exited with code %d" exit-code)
-                      t)))) ; Still return t as playback was attempted
-            (error
-             (message "❌ Error playing audio: %s" (error-message-string error))
-             nil)))
-      (progn
-        (message "❌ No audio player available. Install one of: %s" 
-                 (mapconcat (lambda (p) (car p)) elevenlabs-tts-audio-players ", "))
-        nil))))
+                  
+                  (cond
+                   ((= exit-code 0)
+                    (message "✅ Playback completed")
+                    t)
+                   ((= exit-code 127)
+                    ;; Check for shared library errors in stderr
+                    (let ((stderr-content (when (file-exists-p temp-stderr)
+                                           (with-temp-buffer
+                                             (insert-file-contents temp-stderr)
+                                             (buffer-string)))))
+                      (if (and stderr-content (string-match "error while loading shared libraries" stderr-content))
+                          (progn
+                            (message "❌ Shared library error: %s" (string-trim stderr-content))
+                            nil) ; Return nil for shared library errors
+                        (progn
+                          (message "⚠️  Player exited with code %d" exit-code)
+                          t))))
+                   (t
+                    (message "⚠️  Player exited with code %d" exit-code)
+                    t))))
+            (when (file-exists-p temp-stderr)
+              (delete-file temp-stderr))))
+      (message "❌ No audio player available. Install one of: %s" 
+               (mapconcat (lambda (p) (car p)) elevenlabs-tts-audio-players ", "))
+      nil)))
 
 (defun elevenlabs-tts--is-valid-mp3-file (filename)
   "Check if FILENAME is a valid MP3 file by examining magic bytes.
@@ -745,6 +752,7 @@ Prompts for a new directory. Enter empty string to reset to default."
             (message "Unavailable players: %s" (mapconcat 'identity (reverse unavailable-players) ", "))))
       (message "No audio players available! Install one of: %s" 
                (mapconcat (lambda (p) (car p)) elevenlabs-tts-audio-players ", ")))))
+
 
 (provide 'elevenlabs-tts)
 

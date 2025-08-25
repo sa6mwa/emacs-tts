@@ -20,18 +20,21 @@
 
 (ert-deftest test-elevenlabs-tts-get-voice-id ()
   "Test that voice ID lookup works for known voices."
+  :tags '(unit)
   (should (equal (elevenlabs-tts--get-voice-id "Rachel") "21m00Tcm4TlvDq8ikWAM"))
   (should (equal (elevenlabs-tts--get-voice-id "Josh") "TxGEqnHWrfWFTfGW9XjX"))
   (should (null (elevenlabs-tts--get-voice-id "NonexistentVoice"))))
 
 (ert-deftest test-elevenlabs-tts-get-voice-name ()
   "Test that voice name lookup works for known voice IDs."
+  :tags '(unit)
   (should (equal (elevenlabs-tts--get-voice-name "21m00Tcm4TlvDq8ikWAM") "Rachel"))
   (should (equal (elevenlabs-tts--get-voice-name "TxGEqnHWrfWFTfGW9XjX") "Josh"))
   (should (null (elevenlabs-tts--get-voice-name "NonexistentVoiceID"))))
 
 (ert-deftest test-elevenlabs-tts-get-base-filename ()
   "Test base filename generation."
+  :tags '(unit)
   (let ((buffer-file-name "/home/user/documents/article.txt"))
     (should (equal (elevenlabs-tts--get-base-filename) "article")))
   (let ((buffer-file-name nil))
@@ -39,6 +42,7 @@
 
 (ert-deftest test-elevenlabs-tts-get-next-filename ()
   "Test sequential filename generation with voice names and global numbering."
+  :tags '(unit)
   (let ((temp-dir (make-temp-file "tts-test-" t)))
     (unwind-protect
         (progn
@@ -68,6 +72,7 @@
 
 (ert-deftest test-elevenlabs-tts-voice-lists ()
   "Test that voice lists are properly configured."
+  :tags '(unit)
   (should (member "Rachel" elevenlabs-tts-female-voices))
   (should (member "Josh" elevenlabs-tts-male-voices))
   (should (> (length elevenlabs-tts-female-voices) 0))
@@ -75,6 +80,7 @@
 
 (ert-deftest test-elevenlabs-tts-default-settings ()
   "Test that default settings are properly configured."
+  :tags '(unit)
   (should (assoc 'stability elevenlabs-tts-default-settings))
   (should (assoc 'similarity_boost elevenlabs-tts-default-settings))
   (should (assoc 'style elevenlabs-tts-default-settings))
@@ -82,6 +88,7 @@
 
 (ert-deftest test-elevenlabs-tts-api-key-file-default ()
   "Test that API key file path is set correctly."
+  :tags '(unit)
   (should (stringp elevenlabs-tts-api-key-file))
   (should (string-match "elevenlabs-api-key$" elevenlabs-tts-api-key-file)))
 
@@ -89,6 +96,7 @@
 
 (ert-deftest test-elevenlabs-tts-curl-creates-output-directory ()
   "Test that curl function creates output directory before writing (stubbed)."
+  :tags '(unit)
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (tmp-root (make-temp-file "tts-curl-" t))
          (nested-dir (expand-file-name "a/b/c" tmp-root))
@@ -163,6 +171,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-find-available-audio-player-with-ffplay ()
   "Test finding ffplay as the first available player."
+  :tags '(unit)
   (let ((restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay"))))
     (unwind-protect
         (let ((result (elevenlabs-tts--find-available-audio-player)))
@@ -173,6 +182,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-find-available-audio-player-with-mplayer ()
   "Test finding mplayer when ffplay is not available."
+  :tags '(unit)
   (let ((restore-fn (test-elevenlabs-tts--mock-executable-find '("mplayer"))))
     (unwind-protect
         (let ((result (elevenlabs-tts--find-available-audio-player)))
@@ -183,6 +193,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-find-available-audio-player-priority ()
   "Test player priority order (ffplay should be chosen over mplayer)."
+  :tags '(unit)
   (let ((restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay" "mplayer" "vlc"))))
     (unwind-protect
         (let ((result (elevenlabs-tts--find-available-audio-player)))
@@ -192,6 +203,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-find-available-audio-player-none-found ()
   "Test when no audio player is found."
+  :tags '(unit)
   (let ((restore-fn (test-elevenlabs-tts--mock-executable-find '())))
     (unwind-protect
         (let ((result (elevenlabs-tts--find-available-audio-player)))
@@ -200,6 +212,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-play-audio-file-success ()
   "Test successful audio file playback."
+  :tags '(unit)
   (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
         (restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay")))
         (call-process-calls '())
@@ -207,13 +220,15 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
     (unwind-protect
         (progn
           ;; Mock call-process to record calls and return success
+          ;; Handle the new stderr buffer parameter
           (fset 'call-process
                 (lambda (program &optional infile destination display &rest args)
                   (push (cons program args) call-process-calls)
+                  ;; If destination is a list with stderr buffer, don't write to it for success case
                   0))  ; Return success
           
-          (let ((result (elevenlabs-tts--play-audio-file test-file)))
-            (should (eq result t))
+          (let ((playback-result (elevenlabs-tts--play-audio-file test-file)))
+            (should (eq playback-result t))
             (should (= (length call-process-calls) 1))
             (let ((call (car call-process-calls)))
               (should (string-equal (car call) "/usr/bin/ffplay"))
@@ -225,16 +240,18 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-play-audio-file-no-player ()
   "Test playback when no audio player is available."
+  :tags '(unit)
   (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
         (restore-fn (test-elevenlabs-tts--mock-executable-find '())))
     (unwind-protect
-        (let ((result (elevenlabs-tts--play-audio-file test-file)))
-          (should (null result)))
+        (let ((playback-result (elevenlabs-tts--play-audio-file test-file)))
+          (should (null playback-result)))
       (funcall restore-fn)
       (test-elevenlabs-tts--cleanup-test-audio-file))))
 
 (ert-deftest test-elevenlabs-tts-prompt-for-playback-yes ()
   "Test playback prompt with 'y' input."
+  :tags '(unit)
   (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
         (restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay")))
         (original-read-string (symbol-function 'read-string))
@@ -256,6 +273,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-prompt-for-playback-no ()
   "Test playback prompt with 'n' input."
+  :tags '(unit)
   (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
         (restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay")))
         (original-read-string (symbol-function 'read-string)))
@@ -273,6 +291,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-prompt-for-playback-disabled ()
   "Test playback prompt when playback is disabled."
+  :tags '(unit)
   (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
         (original-enable-playback elevenlabs-tts-enable-playback))
     (unwind-protect
@@ -286,6 +305,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-toggle-playback ()
   "Test toggling playback functionality."
+  :tags '(unit)
   (let ((original-state elevenlabs-tts-enable-playback))
     (unwind-protect
         (progn
@@ -298,6 +318,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-audio-players-configuration ()
   "Test that audio players configuration is valid."
+  :tags '(unit)
   (should (listp elevenlabs-tts-audio-players))
   (should (> (length elevenlabs-tts-audio-players) 0))
   
@@ -312,6 +333,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-gst-launch-special-handling ()
   "Test special handling for gst-launch-1.0."
+  :tags '(unit)
   (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
         (restore-fn (test-elevenlabs-tts--mock-executable-find '("gst-launch-1.0")))
         (call-process-calls '())
@@ -337,6 +359,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-test-audio-players-function ()
   "Test the test-audio-players interactive function."
+  :tags '(unit)
   (let ((restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay" "mplayer"))))
     (unwind-protect
         ;; This should not error and should work with mocked players
@@ -349,11 +372,13 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-unit-api-request-success ()
   "Test successful API request with completely mocked backend (unit test)."
+  :tags '(unit)
   ;; This is a true unit test - no real API calls, no real API key required
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-unit-success-" nil ".mp3"))
          (original-call-process (symbol-function 'call-process))
-         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key))
+         (restore-executable-find (test-elevenlabs-tts--mock-executable-find '("curl"))))
     (unwind-protect
         (progn
           ;; Mock API key reading to return dummy key
@@ -391,15 +416,18 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
       ;; Restore original functions
       (fset 'call-process original-call-process)
       (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (funcall restore-executable-find)
       (when (file-exists-p temp-file)
         (delete-file temp-file)))))
 
 (ert-deftest test-elevenlabs-tts-unit-api-request-http-error ()
   "Test API request with HTTP error response (unit test)."
+  :tags '(unit)
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-unit-error-" nil ".mp3"))
          (original-call-process (symbol-function 'call-process))
-         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key))
+         (restore-executable-find (test-elevenlabs-tts--mock-executable-find '("curl"))))
     (unwind-protect
         (progn
           ;; Mock API key reading
@@ -431,11 +459,13 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
       ;; Restore original functions
       (fset 'call-process original-call-process)
       (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (funcall restore-executable-find)
       (when (file-exists-p temp-file)
         (delete-file temp-file)))))
 
 (ert-deftest test-elevenlabs-tts-unit-api-request-no-api-key ()
   "Test API request failure when no API key is available (unit test)."
+  :tags '(unit)
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-unit-nokey-" nil ".mp3"))
          (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
@@ -454,10 +484,12 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-unit-api-request-invalid-response ()
   "Test API request with invalid MP3 response (unit test)."
+  :tags '(unit)
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-unit-invalid-" nil ".mp3"))
          (original-call-process (symbol-function 'call-process))
-         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key)))
+         (original-read-api-key (symbol-function 'elevenlabs-tts--read-api-key))
+         (restore-executable-find (test-elevenlabs-tts--mock-executable-find '("curl"))))
     (unwind-protect
         (progn
           ;; Mock API key reading
@@ -489,6 +521,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
       ;; Restore original functions
       (fset 'call-process original-call-process)
       (fset 'elevenlabs-tts--read-api-key original-read-api-key)
+      (funcall restore-executable-find)
       (when (file-exists-p temp-file)
         (delete-file temp-file)))))
 
@@ -496,6 +529,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-is-valid-mp3-file-valid ()
   "Test MP3 file validation with valid MP3 data."
+  :tags '(unit)
   (let ((test-file (make-temp-file "test-mp3-" nil ".mp3")))
     (unwind-protect
         (progn
@@ -511,6 +545,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-is-valid-mp3-file-frame-sync ()
   "Test MP3 file validation with MP3 frame sync bytes."
+  :tags '(unit)
   (let ((test-file (make-temp-file "test-mp3-" nil ".mp3")))
     (unwind-protect
         (progn
@@ -525,6 +560,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-is-valid-mp3-file-invalid ()
   "Test MP3 file validation with invalid data."
+  :tags '(unit)
   (let ((test-file (make-temp-file "test-json-" nil ".mp3")))
     (unwind-protect
         (progn
@@ -537,6 +573,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-parse-api-error-response ()
   "Test parsing JSON error responses from ElevenLabs API."
+  :tags '(unit)
   (let ((test-file (make-temp-file "test-error-" nil ".json")))
     (unwind-protect
         (progn
@@ -567,6 +604,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-extract-http-status ()
   "Test extracting HTTP status codes from curl output."
+  :tags '(unit)
   (should (= (elevenlabs-tts--extract-http-status "HTTP_CODE:200") 200))
   (should (= (elevenlabs-tts--extract-http-status "Some text\nHTTP_CODE:402\nmore text") 402))
   (should (= (elevenlabs-tts--extract-http-status "HTTP_CODE:404") 404))
@@ -574,6 +612,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-format-api-error-message ()
   "Test formatting user-friendly error messages."
+  :tags '(unit)
   (should (string-equal (elevenlabs-tts--format-api-error-message 402 "Insufficient credits")
                        "Payment Required (insufficient credits): Insufficient credits"))
   (should (string-equal (elevenlabs-tts--format-api-error-message 401 nil)
@@ -585,6 +624,7 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
 
 (ert-deftest test-elevenlabs-tts-unit-curl-error-handling-http-error ()
   "Test curl error handling with HTTP error response (mocked unit test)."
+  :tags '(unit)
   (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
          (temp-file (make-temp-file "tts-error-test-" nil ".mp3"))
          (original-call-process (symbol-function 'call-process)))
@@ -616,38 +656,59 @@ AVAILABLE-PLAYERS should be a list of player names that should be 'found'."
       (when (file-exists-p temp-file)
         (delete-file temp-file)))))
 
-(ert-deftest test-elevenlabs-tts-unit-curl-error-handling-invalid-mp3 ()
-  "Test curl error handling when response is not valid MP3 (mocked unit test)."
-  (let* ((voice-id (elevenlabs-tts--get-voice-id "Rachel"))
-         (temp-file (make-temp-file "tts-invalid-test-" nil ".mp3"))
-         (original-call-process (symbol-function 'call-process)))
+(ert-deftest test-elevenlabs-tts-play-audio-file-shared-library-error ()
+  "Test shared library error detection in audio playback."
+  :tags '(unit)
+  (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
+        (restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay")))
+        (original-call-process (symbol-function 'call-process)))
     (unwind-protect
         (progn
-          ;; Mock call-process to return JSON instead of MP3
+          ;; Mock call-process to simulate exit code 127 with shared library error in stderr
           (fset 'call-process
                 (lambda (program &optional infile destination display &rest args)
-                  (when (and (string-equal program "curl")
-                             (cl-find "-o" args :test #'string=))
-                    ;; Write JSON error to output file (should be MP3)
-                    (let* ((o-index (cl-position "-o" args :test #'string=))
-                           (ofile (and o-index (nth (1+ o-index) args))))
-                      (when ofile
-                        (with-temp-file ofile
-                          (insert "{\"detail\": \"Some API error\"}"))))
-                    ;; Write HTTP 200 status to temp output
-                    (when destination
-                      (with-temp-buffer
-                        (insert "HTTP_CODE:200\n")
-                        (write-region (point-min) (point-max) destination))))
-                  0))
+                  (when (and destination (listp destination))
+                    ;; Write shared library error to stderr temp file (second element of destination list)
+                    (let ((stderr-file (cadr destination)))
+                      (when stderr-file
+                        (with-temp-file stderr-file
+                          (insert "/usr/bin/ffplay: error while loading shared libraries: libavdevice.so.62: cannot open shared object file: No such file or directory\n")))))
+                  127))  ; Return exit code 127
           
-          (let ((result (elevenlabs-tts--make-curl-request voice-id "Test text" temp-file "DUMMY-KEY")))
-            (should (null result))  ; Should fail due to invalid MP3
-            (should-not (file-exists-p temp-file))))  ; Invalid file should be cleaned up
+          (let ((playback-result (elevenlabs-tts--play-audio-file test-file)))
+            ;; Should return nil for shared library errors (indicating failure to start playback)
+            (should (null playback-result))))
       
       (fset 'call-process original-call-process)
-      (when (file-exists-p temp-file)
-        (delete-file temp-file)))))
+      (funcall restore-fn)
+      (test-elevenlabs-tts--cleanup-test-audio-file))))
+
+(ert-deftest test-elevenlabs-tts-play-audio-file-command-not-found-error ()
+  "Test handling of regular command not found errors (exit code 127 without shared library message)."
+  :tags '(unit)
+  (let ((test-file (test-elevenlabs-tts--create-test-audio-file))
+        (restore-fn (test-elevenlabs-tts--mock-executable-find '("ffplay")))
+        (original-call-process (symbol-function 'call-process)))
+    (unwind-protect
+        (progn
+          ;; Mock call-process to simulate exit code 127 without shared library error
+          (fset 'call-process
+                (lambda (program &optional infile destination display &rest args)
+                  (when (and destination (listp destination))
+                    ;; Write generic error to stderr temp file
+                    (let ((stderr-file (cadr destination)))
+                      (when stderr-file
+                        (with-temp-file stderr-file
+                          (insert "ffplay: command not found\n")))))
+                  127))  ; Return exit code 127
+          
+          (let ((playback-result (elevenlabs-tts--play-audio-file test-file)))
+            ;; Should return t for regular command not found errors (still attempted playback)
+            (should (eq playback-result t)))
+      
+      (fset 'call-process original-call-process)
+      (funcall restore-fn)
+      (test-elevenlabs-tts--cleanup-test-audio-file)))))
 
 ;;; Integration Tests (require API key)
 

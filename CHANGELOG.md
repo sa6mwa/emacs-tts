@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [a89f374] - 2025-08-25
+
+### Enhanced
+- **Audio Playback Error Handling**
+  - Improved error detection distinguishing shared library errors from command-not-found errors
+  - Added stderr capture to audio playback calls for better error diagnostics
+  - Enhanced exit code interpretation for various audio player failure scenarios
+  - Better temporary file cleanup for stderr capture files
+
+- **GStreamer Support**
+  - Fixed gst-launch-1.0 URI handling with dynamic file:// URI construction
+  - Proper file path handling for GStreamer playback pipeline
+
+### Improved
+- **Test Suite Organization**
+  - Organized test suite with ERT tags: 34 unit tests (`:tags '(unit)`) and 2 integration tests (`:tags '(integration)`)
+  - Streamlined test runner to use ERT tag selectors instead of manual test lists
+  - Removed complex manual test enumeration in favor of clean tag-based filtering
+  - Clear separation: unit tests require no API key, integration tests do
+
+- **Test Infrastructure**
+  - Added complete mocking infrastructure for isolated unit testing of API calls
+  - Enhanced test coverage for audio playback error scenarios
+  - Improved test maintainability with tag-based organization
+
+### Fixed
+- **Critical Test Suite Issues**
+  - Fixed syntax errors in test file (removed extra closing parenthesis) that prevented proper test discovery
+  - Resolved test count confusion: clarified 36 total tests = 34 unit + 2 integration tests
+  - Fixed test file loading issues that prevented ERT from finding all tests
+
+- **Audio Playback Robustness**
+  - Enhanced shared library error detection and reporting
+  - Improved handling of various audio player exit codes
+  - Better error messages for audio playback failures
+
+### Technical
+- **Code Quality**
+  - Better separation of concerns between unit and integration testing
+  - Cleaner test runner implementation with tag-based selection
+  - Enhanced error handling patterns throughout audio playback code
+  - Improved test isolation and reliability
+
 ## [Unreleased]
 
 ### Added

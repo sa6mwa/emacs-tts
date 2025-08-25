@@ -74,6 +74,67 @@ run_tests() {
     rm -f "$output_file"
 }
 
+# Function to run a list of specific tests individually
+run_test_list() {
+    local test_type="$1"
+    shift
+    local tests=("$@")
+    local output_file
+    local exit_code
+    local passed=0
+    local failed=0
+    local total=${#tests[@]}
+    
+    echo -e "\n${YELLOW}Running $test_type tests ($total tests)...${NC}"
+    
+    # Run tests individually to avoid complex selector issues
+    for test in "${tests[@]}"; do
+        # Create temp file for output
+        output_file=$(mktemp)
+        
+        # Run single test
+        $EMACS -batch -l "$PACKAGE_FILE" -l "$TEST_FILE" \
+              --eval "(ert-run-tests-batch-and-exit \"$test\")" \
+              > "$output_file" 2>&1
+        exit_code=$?
+        
+        if [ $exit_code -eq 0 ]; then
+            ((passed++))
+            echo -e "  ${GREEN}✓${NC} $test"
+        else
+            ((failed++))
+            echo -e "  ${RED}✗${NC} $test"
+            HAS_FAILED=1
+            
+            # Show error details for failed tests
+            if [ -s "$output_file" ]; then
+                echo "    Error details:"
+                grep -E "(Error:|should have been|expected|FAILED)" "$output_file" | head -3 | sed 's/^/      /' || true
+            fi
+        fi
+        
+        # Clean up temp file
+        rm -f "$output_file"
+    done
+    
+    # Summary
+    echo -e "  ${YELLOW}Results: $passed passed, $failed failed${NC}"
+    
+    if [ $failed -eq 0 ]; then
+        echo -e "${GREEN}✓ $test_type tests passed${NC}"
+    else
+        echo -e "${RED}✗ $test_type tests failed${NC}"
+        
+        # For integration tests, provide helpful error messages
+        if [[ "$test_type" == *"Integration"* ]]; then
+            echo -e "${YELLOW}💡 This could be due to:${NC}"
+            echo "   - Insufficient ElevenLabs credits"
+            echo "   - Invalid API key"
+            echo "   - Network connectivity issues"
+        fi
+    fi
+}
+
 # Manual test function
 run_manual_test() {
     echo -e "${BLUE}ElevenLabs TTS Manual Test${NC}"
@@ -154,24 +215,8 @@ case "${1:-all}" in
         ;;
     "unit")
         echo "Running unit tests (excluding integration)..."
-        # Run individual core functionality tests
-        echo "  - API and configuration tests..."
-        run_tests "API Config" "\"api-key-file-default\""
-        run_tests "Default Settings" "\"default-settings\""
-        echo "  - Voice handling tests..."
-        run_tests "Voice ID" "\"get-voice-id\""
-        run_tests "Voice Name" "\"get-voice-name\""
-        run_tests "Voice Lists" "\"voice-lists\""
-        echo "  - Filename generation tests..."
-        run_tests "Base Filename" "\"get-base-filename\""
-        run_tests "Next Filename" "\"get-next-filename\""
-        echo "  - TTS generation tests..."
-        run_tests "Curl Output" "\"curl-creates\""
-        echo "  - Playback functionality tests..."
-        run_tests "Audio Player" "\"audio-player\""
-        run_tests "Audio File Playback" "\"play-audio-file\""
-        run_tests "Playback Prompt" "\"playback\""
-        run_tests "GStreamer" "\"gst-launch\""
+        # Use ERT tags to select unit tests
+        run_tests "Unit" "'(tag unit)"
         ;;
     "integration")
         echo "Running integration tests..."
@@ -182,8 +227,8 @@ case "${1:-all}" in
             echo "Please set up your API key in $API_KEY_FILE first"
             exit 1
         fi
-        run_tests "Integration API Key" "\"integration-api-key-reading\""
-        run_tests "Integration Voice Gen" "\"integration-voice-generation\""
+        # Use ERT tags to select integration tests
+        run_tests "Integration" "'(tag integration)"
         ;;
     "manual")
         run_manual_test

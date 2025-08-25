@@ -268,17 +268,23 @@ Run the full test suite:
 
 ```bash
 # Run all tests (unit + integration)
-make test
+make test                     # 36 total tests: 34 unit + 2 integration
 
 # Run only unit tests (no API key required)
-make test-unit
+make test-unit               # 34 unit tests with complete mocking
 
 # Run only integration tests (requires API key and credits)
-make test-integration
+make test-integration        # 2 integration tests with real API calls
 
 # Test audio playback functionality
-make test-playback
+make test-playback          # Audio player detection and error handling
 ```
+
+**Test Suite Organization:**
+- **Unit Tests** (34): Complete mocking, no API key required, test internal functionality
+- **Integration Tests** (2): Real API calls, require valid API key and credits
+- **ERT Tags**: Tests organized with `:tags '(unit)` and `:tags '(integration)` for clean separation
+- **Error Scenarios**: Comprehensive testing of audio playback errors, API failures, and edge cases
 
 ## Security Features
 
