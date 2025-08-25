@@ -36,43 +36,42 @@ Get an API key at https://elevenlabs.io/"
 
 (defcustom elevenlabs-tts-voices
   '(;; Female voices
-    ("Rachel" . "21m00Tcm4TlvDq8ikWAM")    ; Female, American
-    ("Domi" . "AZnzlk1XvdvUeBnXmlld")      ; Female, American
-    ("Bella" . "EXAVITQu4vr4xnSDxMaL")     ; Female, American
-    ("Elli" . "MF3mGyEYCl7XYWbV9V6O")      ; Female, American
-    ("Emily" . "LcfcDJNUP1GQjkzn1xUU")     ; Female, American
-    ("Matilda" . "XrExE9yKIg1WjnnlVkGX")   ; Female, American
-    ("Grace" . "oWAxZDx7w5VEj9dCyTzz")     ; Female, American
-    ("Serena" . "pMsXgVXv3BLzUgSXRplE")    ; Female, American
-    ("Dorothy" . "ThT5KcBeYPX3keUQqHPh")   ; Female, British
-    ("Charlotte" . "XB0fDUnXU5powFXDhCwa") ; Female, English
+    ("Rachel" . "21m00Tcm4TlvDq8ikWAM")    ; Female, American, young
+    ("Sarah" . "EXAVITQu4vr4xnSDxMaL")     ; Female, American, young
+    ("Laura" . "FGY2WhTYpPnrIDTdsKH5")     ; Female, American, young
+    ("Alice" . "Xb7hH8MSUJpSbSDYk0k2")     ; Female, British, middle-aged
+    ("Jessica" . "cgSgspJ2msm6clMCkdW9")   ; Female, American, young
+    ("Lily" . "pFZP5JQG7iQjIQuC4Bku")      ; Female, British, middle-aged
+    ("Matilda" . "XrExE9yKIg1WjnnlVkGX")   ; Female, American, middle-aged
     ;; Male voices
-    ("Drew" . "29vD33N1CtxCmqQRPOHJ")      ; Male, American
-    ("Clyde" . "2EiwWnXFnvU5JabPnv8n")     ; Male, American
-    ("Antoni" . "ErXwobaYiN019PkySvjV")    ; Male, American
-    ("Josh" . "TxGEqnHWrfWFTfGW9XjX")      ; Male, American
-    ("Arnold" . "VR6AewLTigWG4xSOukaG")    ; Male, American
-    ("Adam" . "pNInz6obpgDQGcFmaJgB")      ; Male, American
-    ("Sam" . "yoZ06aMxZJJ28mfd3POQ")       ; Male, American
-    ("David" . "1iX6qVNKCsGGMEKdojN9")     ; Male, American
-    ("Ethan" . "g5CIjZEefAph4nQFvHAz")     ; Male, American
-    ("Brian" . "nPczCjzI2devNBz1zQrb")     ; Male, American
-    ("Callum" . "N2lVS1w4EtoT3dr4eOWO")    ; Male, American
-    ("Charlie" . "IKne3meq5aSn9XLyUdCD")   ; Male, Australian
-    ("George" . "JBFqnCBsd6RMkjVDRZzb")    ; Male, English
-    ("Liam" . "TX3LPaxmHKxFdv7VOQHJ"))     ; Male, American
+    ("Clyde" . "2EiwWnXFnvU5JabPnv8n")     ; Male, American, middle-aged
+    ("Roger" . "CwhRBWXzGAHq8TQ4Fs17")     ; Male, American, middle-aged
+    ("Thomas" . "GBv7mTt0atIp3Br8iCZE")    ; Male, American, young
+    ("Charlie" . "IKne3meq5aSn9XLyUdCD")   ; Male, Australian, young
+    ("George" . "JBFqnCBsd6RMkjVDRZzb")    ; Male, British, middle-aged
+    ("Callum" . "N2lVS1w4EtoT3dr4eOWO")    ; Male, middle-aged
+    ("Harry" . "SOYHLrjzK2X1ezoPC6cr")     ; Male, American, young
+    ("Liam" . "TX3LPaxmHKxFdv7VOQHJ")      ; Male, American, young
+    ("Will" . "bIHbv24MWmeRgasZH58o")      ; Male, American, young
+    ("Eric" . "cjVigY5qzO86Huf0OWal")      ; Male, American, middle-aged
+    ("Chris" . "iP95p4xoKVk53GoZ742B")     ; Male, American, middle-aged
+    ("Brian" . "nPczCjzI2devNBz1zQrb")     ; Male, American, middle-aged
+    ("Daniel" . "onwK4e9ZLuTAKqWW03F9")    ; Male, British, middle-aged
+    ("Bill" . "pqHfZKP75CvOlQylNhV4")      ; Male, American, old
+    ;; Neutral voices
+    ("River" . "SAz9YHcvj6GT2YYXdXww"))    ; Neutral, American, middle-aged
   "Alist of voice names and their corresponding ElevenLabs voice IDs."
   :type '(alist :key-type string :value-type string)
   :group 'elevenlabs-tts)
 
 (defcustom elevenlabs-tts-male-voices
-  '("Drew" "Clyde" "Antoni" "Josh" "Arnold" "Adam" "Sam" "David" "Ethan" "Brian" "Callum" "Charlie" "George" "Liam")
+  '("Clyde" "Roger" "Thomas" "Charlie" "George" "Callum" "Harry" "Liam" "Will" "Eric" "Chris" "Brian" "Daniel" "Bill")
   "List of male voice names."
   :type '(repeat string)
   :group 'elevenlabs-tts)
 
 (defcustom elevenlabs-tts-female-voices
-  '("Rachel" "Domi" "Bella" "Elli" "Emily" "Matilda" "Grace" "Serena" "Dorothy" "Charlotte")
+  '("Rachel" "Sarah" "Laura" "Alice" "Jessica" "Lily" "Matilda")
   "List of female voice names."
   :type '(repeat string)
   :group 'elevenlabs-tts)
@@ -728,8 +727,8 @@ Interactive workflow: select output directory, select voice, select speed, confi
            (_ (elevenlabs-tts--set-output-directory selected-output-dir))
            ;; Now use the set output directory
            (output-dir (elevenlabs-tts--get-output-directory))
-           ;; Combine all voices for selection
-           (all-voices (append elevenlabs-tts-male-voices elevenlabs-tts-female-voices))
+           ;; Combine all voices for selection (including neutral voices like River)
+           (all-voices (append elevenlabs-tts-male-voices elevenlabs-tts-female-voices '("River")))
            (voice-name (completing-read "Select voice: " all-voices nil t))
            ;; Prompt for speech speed and set it for this buffer
            (selected-speed (elevenlabs-tts--prompt-for-speech-speed))

@@ -22,14 +22,14 @@
   "Test that voice ID lookup works for known voices."
   :tags '(unit)
   (should (equal (elevenlabs-tts--get-voice-id "Rachel") "21m00Tcm4TlvDq8ikWAM"))
-  (should (equal (elevenlabs-tts--get-voice-id "Josh") "TxGEqnHWrfWFTfGW9XjX"))
+  (should (equal (elevenlabs-tts--get-voice-id "Clyde") "2EiwWnXFnvU5JabPnv8n"))
   (should (null (elevenlabs-tts--get-voice-id "NonexistentVoice"))))
 
 (ert-deftest test-elevenlabs-tts-get-voice-name ()
   "Test that voice name lookup works for known voice IDs."
   :tags '(unit)
   (should (equal (elevenlabs-tts--get-voice-name "21m00Tcm4TlvDq8ikWAM") "Rachel"))
-  (should (equal (elevenlabs-tts--get-voice-name "TxGEqnHWrfWFTfGW9XjX") "Josh"))
+  (should (equal (elevenlabs-tts--get-voice-name "2EiwWnXFnvU5JabPnv8n") "Clyde"))
   (should (null (elevenlabs-tts--get-voice-name "NonexistentVoiceID"))))
 
 (ert-deftest test-elevenlabs-tts-get-base-filename ()
@@ -59,13 +59,13 @@
           (write-region "test" nil (expand-file-name "test-0002-rachel.mp3" temp-dir))
           
           ;; Test global numbering: different voice should continue sequence (not restart at 01)
-          (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Josh")))
-            (should (string-match "test-0003-josh\\.mp3$" filename)))
+          (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Clyde")))
+            (should (string-match "test-0003-clyde\\.mp3$" filename)))
           
           ;; Create a higher numbered file to test max detection
           (write-region "test" nil (expand-file-name "test-0010-charlie.mp3" temp-dir))
-          (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Emily")))
-            (should (string-match "test-0011-emily\\.mp3$" filename))))
+          (let ((filename (elevenlabs-tts--get-next-filename temp-dir "test" "Alice")))
+            (should (string-match "test-0011-alice\\.mp3$" filename))))
       ;; Cleanup
       (when (file-exists-p temp-dir)
         (delete-directory temp-dir t)))))
@@ -74,7 +74,7 @@
   "Test that voice lists are properly configured."
   :tags '(unit)
   (should (member "Rachel" elevenlabs-tts-female-voices))
-  (should (member "Josh" elevenlabs-tts-male-voices))
+  (should (member "Clyde" elevenlabs-tts-male-voices))
   (should (> (length elevenlabs-tts-female-voices) 0))
   (should (> (length elevenlabs-tts-male-voices) 0)))
 

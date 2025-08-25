@@ -11,7 +11,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 - Automatic MP3 file validation and corrupted file detection
 - Optional audio playback with support for multiple players (ffplay, mplayer, mpv, vlc, etc.)
 - Per-buffer output directory: Each buffer can have its own custom output directory
-- Smart filename generation with voice names (e.g., `article-0001-rachel.mp3`, `article-0002-josh.mp3`)
+- Smart filename generation with voice names (e.g., `article-0001-rachel.mp3`, `article-0002-clyde.mp3`)
 - Global sequential numbering across all voices (0001, 0002, 0003...)
 - Supports up to 9,999 files with 4-digit numbering
 - Flexible output location: custom directory per buffer or default to buffer's directory
@@ -89,21 +89,25 @@ vim ~/.config/emacs-tts/elevenlabs-api-key
 
 ### Voice Configuration
 
-The package comes with pre-configured voices including:
+The package comes with **22 pre-configured voices** including:
 
-**Male voices:** Drew, Clyde, Antoni, Josh, Arnold, Adam, Sam, David, Ethan, Brian, Callum, Charlie, George, Liam
+**Male voices (14):** Clyde, Roger, Thomas, Charlie, George, Callum, Harry, Liam, Will, Eric, Chris, Brian, Daniel, Bill
 
-**Female voices:** Rachel, Domi, Bella, Elli, Emily, Matilda, Grace, Serena, Dorothy, Charlotte
+**Female voices (7):** Rachel, Sarah, Laura, Alice, Jessica, Lily, Matilda
+
+**Neutral voices (1):** River
+
+📋 **For complete voice details including voice IDs, accents, ages, and usage recommendations, see [VOICES.md](VOICES.md).**
 
 You can customize the voice lists:
 
 ```elisp
 ;; Add or modify voices
 (setq elevenlabs-tts-male-voices 
-      '("Josh" "Adam" "Sam"))  ; Your preferred male voices first
+      '("Clyde" "Roger" "Thomas"))  ; Your preferred male voices first
 
 (setq elevenlabs-tts-female-voices 
-      '("Rachel" "Bella" "Emily"))  ; Your preferred female voices first
+      '("Rachel" "Sarah" "Laura"))  ; Your preferred female voices first
 ```
 
 ### Voice Settings
@@ -217,11 +221,11 @@ Buffer A (~/documents/article.txt):
 
 Buffer B (~/code/readme.md):
 - Custom output: ~/project-audio/
-- Files: ~/project-audio/readme-0001-josh.mp3
+- Files: ~/project-audio/readme-0001-clyde.mp3
 
 Buffer C (~/notes.txt):
 - Default output (same as buffer): ~/
-- Files: ~/notes-0001-bella.mp3
+- Files: ~/notes-0001-alice.mp3
 ```
 
 Each buffer's output directory setting persists until you change it or close the buffer.
@@ -242,7 +246,7 @@ Audio files are saved with smart sequential naming that includes voice informati
 
 **Examples:**
 - `article-0001-rachel.mp3` ← First file with Rachel
-- `article-0002-josh.mp3` ← Second file with Josh  
+- `article-0002-clyde.mp3` ← Second file with Clyde  
 - `article-0003-rachel.mp3` ← Third file with Rachel again
 - `article-0004-charlie.mp3` ← Fourth file with Charlie
 
@@ -261,11 +265,11 @@ Files are saved in the same directory as the current buffer, or in the current w
 2. Select some text: "Hello, this is a test of the text-to-speech system."
 3. Press `C-c s`
 4. **Choose output directory**: First time, you'll be prompted for output directory (e.g., accept default `/home/user/documents/` or choose custom like `/home/user/audio/`)
-5. **Choose voice** from completion list (e.g., Josh, Rachel, etc.)
+5. **Choose voice** from completion list (e.g., Clyde, Rachel, etc.)
 6. **Choose speech speed**: Select from presets (Slow, Normal, Fast) or current speed, or choose "Custom..." for exact values
-7. **Confirm file path**: `/home/user/documents/article-0001-josh.mp3` (or edit as needed)
+7. **Confirm file path**: `/home/user/documents/article-0001-clyde.mp3` (or edit as needed)
 8. Wait for generation
-9. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-josh.mp3"
+9. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-clyde.mp3"
 10. Next selection with Rachel creates: `article-0002-rachel.mp3` (continues sequence in same directory)
 
 ## Troubleshooting
