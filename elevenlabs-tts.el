@@ -10,7 +10,11 @@
 
 ;; This package provides integration with ElevenLabs text-to-speech API.
 ;; It allows you to convert selected text to speech using high-quality voices
-;; and saves the resulting audio file in the same directory as the current buffer.
+;; and saves the resulting audio file to a configurable output directory.
+;;
+;; The output directory can be set per buffer and defaults to the directory
+;; of the current buffer's file. Use `elevenlabs-tts-set-output-directory'
+;; to configure the output directory for a specific buffer.
 
 ;;; Code:
 
@@ -91,6 +95,11 @@ When non-nil, shows detailed curl output and request information."
 (defvar elevenlabs-tts-api-base-url "https://api.elevenlabs.io/v1"
   "Base URL for ElevenLabs API.")
 
+(defvar-local elevenlabs-tts-output-directory nil
+  "Buffer-local output directory for TTS files.
+When nil, defaults to the directory of the current buffer file.
+This setting is maintained per buffer.")
+
 (defun elevenlabs-tts--read-api-key ()
   "Read API key from the configured file."
   (let ((key-file (expand-file-name elevenlabs-tts-api-key-file)))
@@ -143,6 +152,38 @@ Numbering is global across all voices, not per-voice."
   (if buffer-file-name
       (file-name-directory buffer-file-name)
     default-directory))
+
+(defun elevenlabs-tts--get-output-directory ()
+  "Get the output directory for the current buffer.
+Uses buffer-local setting if set, otherwise defaults to buffer directory."
+  (or elevenlabs-tts-output-directory
+      (elevenlabs-tts--get-buffer-directory)))
+
+(defun elevenlabs-tts--set-output-directory (directory)
+  "Set the output directory for the current buffer.
+If DIRECTORY is an empty string, reset to default (buffer directory).
+DIRECTORY should be a directory path, not a filename."
+  (if (or (null directory) (string-empty-p directory))
+      (setq elevenlabs-tts-output-directory nil)
+    (let ((expanded-dir (expand-file-name directory)))
+      ;; Ensure it ends with a directory separator
+      (unless (string-suffix-p "/" expanded-dir)
+        (setq expanded-dir (concat expanded-dir "/")))
+      (setq elevenlabs-tts-output-directory expanded-dir))))
+
+(defun elevenlabs-tts--prompt-for-output-directory ()
+  "Prompt user for output directory, showing current setting.
+Returns the selected directory, or nil if user wants default."
+  (let* ((current-dir (elevenlabs-tts--get-output-directory))
+         (default-dir (elevenlabs-tts--get-buffer-directory))
+         (prompt (if (equal current-dir default-dir)
+                     (format "Output directory (current: default - %s, empty for default): " default-dir)
+                   (format "Output directory (current: %s, empty for default): " current-dir)))
+         (selected-dir (read-directory-name prompt current-dir)))
+    ;; Handle the case where user selects the same directory
+    (if (equal (expand-file-name selected-dir) (expand-file-name current-dir))
+        current-dir
+      selected-dir)))
 
 (defun elevenlabs-tts--get-base-filename ()
   "Get a base filename for the audio file based on current buffer."
@@ -362,18 +403,22 @@ Save result to FILENAME and return success status."
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection ()
   "Convert selected text to speech using ElevenLabs API.
-Interactive workflow: select voice, confirm/edit output path, generate audio."
+Interactive workflow: select output directory, select voice, confirm/edit output path, generate audio."
   (interactive)
   (if (not (use-region-p))
       (message "Please select some text first")
     (let* ((text (buffer-substring-no-properties (region-beginning) (region-end)))
+           ;; Prompt for output directory and set it for this buffer
+           (selected-output-dir (elevenlabs-tts--prompt-for-output-directory))
+           (_ (elevenlabs-tts--set-output-directory selected-output-dir))
+           ;; Now use the set output directory
+           (output-dir (elevenlabs-tts--get-output-directory))
            ;; Combine all voices for selection
            (all-voices (append elevenlabs-tts-male-voices elevenlabs-tts-female-voices))
            (voice-name (completing-read "Select voice: " all-voices nil t))
            (voice-id (elevenlabs-tts--get-voice-id voice-name))
-           (base-dir (elevenlabs-tts--get-buffer-directory))
            (base-name (elevenlabs-tts--get-base-filename))
-           (default-filename (elevenlabs-tts--get-next-filename base-dir base-name voice-name))
+           (default-filename (elevenlabs-tts--get-next-filename output-dir base-name voice-name))
            ;; Let user confirm or edit the output path
            (filename (read-file-name "Output file: " (file-name-directory default-filename)
                                     nil nil (file-name-nondirectory default-filename))))
@@ -382,9 +427,9 @@ Interactive workflow: select voice, confirm/edit output path, generate audio."
         (error "Voice ID not found for %s" voice-name))
       
       ;; Ensure the output directory exists
-      (let ((output-dir (file-name-directory filename)))
-        (unless (file-exists-p output-dir)
-          (make-directory output-dir t)))
+      (let ((final-output-dir (file-name-directory filename)))
+        (unless (file-exists-p final-output-dir)
+          (make-directory final-output-dir t)))
       
       (message "Generating speech with %s voice..." voice-name)
       
@@ -394,7 +439,8 @@ Interactive workflow: select voice, confirm/edit output path, generate audio."
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection-quick (gender)
   "Quick text-to-speech with predetermined GENDER voice.
-GENDER should be \='male or \='female."
+GENDER should be \='male or \='female.
+Uses the current buffer's output directory setting."
   (interactive 
    (list (intern (completing-read "Select gender: " '("male" "female") nil t))))
   (if (not (use-region-p))
@@ -405,9 +451,10 @@ GENDER should be \='male or \='female."
                         elevenlabs-tts-female-voices))
            (voice-name (car voice-list))  ; Use first voice from list
            (voice-id (elevenlabs-tts--get-voice-id voice-name))
-           (base-dir (elevenlabs-tts--get-buffer-directory))
+           ;; Use the per-buffer output directory setting
+           (output-dir (elevenlabs-tts--get-output-directory))
            (base-name (elevenlabs-tts--get-base-filename))
-           (filename (elevenlabs-tts--get-next-filename base-dir base-name voice-name)))
+           (filename (elevenlabs-tts--get-next-filename output-dir base-name voice-name)))
       
       (message "Generating speech with %s voice..." voice-name)
       
@@ -428,6 +475,31 @@ GENDER should be \='male or \='female."
   (global-set-key (kbd "C-c s") 'elevenlabs-tts-speak-selection)
   (global-set-key (kbd "C-c S") (lambda () (interactive) (elevenlabs-tts-speak-selection-quick 'male)))
   (global-set-key (kbd "C-c M-s") (lambda () (interactive) (elevenlabs-tts-speak-selection-quick 'female))))
+
+;;;###autoload
+(defun elevenlabs-tts-set-output-directory ()
+  "Set or view the output directory for the current buffer.
+Prompts for a new directory. Enter empty string to reset to default."
+  (interactive)
+  (let* ((current-dir (elevenlabs-tts--get-output-directory))
+         (default-dir (elevenlabs-tts--get-buffer-directory))
+         (is-default (equal current-dir default-dir))
+         (prompt (if is-default
+                     (format "Output directory (currently default: %s, empty to keep default): " default-dir)
+                   (format "Output directory (currently: %s, empty for default): " current-dir)))
+         (input (read-directory-name prompt current-dir)))
+    
+    ;; Check if user wants to reset to default by entering empty string
+    ;; (read-directory-name doesn't return empty string, so we check if it's the same as current)
+    (if (equal (expand-file-name input) (expand-file-name current-dir))
+        (message "Output directory unchanged: %s" current-dir)
+      (progn
+        (elevenlabs-tts--set-output-directory input)
+        (let ((new-dir (elevenlabs-tts--get-output-directory))
+              (new-is-default (equal (elevenlabs-tts--get-output-directory) default-dir)))
+          (if new-is-default
+              (message "Output directory reset to default: %s" new-dir)
+            (message "Output directory set to: %s" new-dir)))))))
 
 ;;;###autoload
 (defun elevenlabs-tts-toggle-debug ()

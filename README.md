@@ -6,10 +6,11 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 - Convert selected text to speech using ElevenLabs' premium voices
 - Support for both male and female voices
+- **Per-buffer output directory**: Each buffer can have its own custom output directory
 - Smart filename generation with voice names (e.g., `article-0001-rachel.mp3`, `article-0002-josh.mp3`)
 - Global sequential numbering across all voices (0001, 0002, 0003...)
 - Supports up to 9,999 files with 4-digit numbering
-- Audio files saved in the same directory as the current buffer
+- Flexible output location: custom directory per buffer or default to buffer's directory
 - Interactive voice selection or quick shortcuts
 - Convenient keybindings
 
@@ -117,8 +118,40 @@ Customize the voice parameters:
 
 1. **Select text** in any Emacs buffer
 2. **Run one of the commands**:
-   - `M-x elevenlabs-tts-speak-selection` - Interactive voice selection
-   - `M-x elevenlabs-tts-speak-selection-quick` - Quick with first voice of chosen gender
+   - `M-x elevenlabs-tts-speak-selection` - Interactive voice selection with output directory prompt
+   - `M-x elevenlabs-tts-speak-selection-quick` - Quick with first voice of chosen gender (uses current buffer's output directory)
+
+### Output Directory Management
+
+**Per-buffer output directories**: Each buffer maintains its own output directory setting independently.
+
+#### Commands
+- `M-x elevenlabs-tts-set-output-directory` - Set or view the output directory for the current buffer
+
+#### How it works
+
+1. **First time usage**: When you run `elevenlabs-tts-speak-selection`, you'll be prompted to choose an output directory
+2. **Subsequent usage**: The selected directory is remembered for that specific buffer
+3. **Default behavior**: If no custom directory is set, files are saved to the same directory as the buffer's file
+4. **Reset to default**: Enter an empty string when prompted to reset to the default directory
+
+#### Examples
+
+```
+Buffer A (~/documents/article.txt):
+- Custom output: ~/audio/articles/
+- Files: ~/audio/articles/article-0001-rachel.mp3
+
+Buffer B (~/code/readme.md):
+- Custom output: ~/project-audio/
+- Files: ~/project-audio/readme-0001-josh.mp3
+
+Buffer C (~/notes.txt):
+- Default output (same as buffer): ~/
+- Files: ~/notes-0001-bella.mp3
+```
+
+Each buffer's output directory setting persists until you change it or close the buffer.
 
 ### Keybindings (if enabled)
 
@@ -154,11 +187,12 @@ Files are saved in the same directory as the current buffer, or in the current w
 1. Open a text file: `/home/user/documents/article.txt`
 2. Select some text: "Hello, this is a test of the text-to-speech system."
 3. Press `C-c s`
-4. Choose voice from completion list (e.g., Josh, Rachel, etc.)
-5. Confirm file path: `/home/user/documents/article-0001-josh.mp3` (or edit as needed)
-6. Wait for generation
-7. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-josh.mp3"
-8. Next selection with Rachel creates: `article-0002-rachel.mp3` (continues sequence)
+4. **Choose output directory**: First time, you'll be prompted for output directory (e.g., accept default `/home/user/documents/` or choose custom like `/home/user/audio/`)
+5. **Choose voice** from completion list (e.g., Josh, Rachel, etc.)
+6. **Confirm file path**: `/home/user/documents/article-0001-josh.mp3` (or edit as needed)
+7. Wait for generation
+8. See success message: "✅ Audio successfully saved to: /home/user/documents/article-0001-josh.mp3"
+9. Next selection with Rachel creates: `article-0002-rachel.mp3` (continues sequence in same directory)
 
 ## Troubleshooting
 
