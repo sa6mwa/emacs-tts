@@ -92,6 +92,28 @@ When non-nil, shows detailed curl output and request information."
   :type 'boolean
   :group 'elevenlabs-tts)
 
+(defcustom elevenlabs-tts-enable-playback t
+  "Enable automatic playback prompt after TTS generation.
+When non-nil, prompts user to play the generated audio file."
+  :type 'boolean
+  :group 'elevenlabs-tts)
+
+(defcustom elevenlabs-tts-audio-players
+  '(("ffplay" . ("-autoexit" "-nodisp"))
+    ("mpg321" . ("-q"))
+    ("mpg123" . ("-q"))
+    ("mplayer" . ("-really-quiet" "-novideo"))
+    ("mpv" . ("--no-video" "--really-quiet"))
+    ("vlc" . ("--intf" "dummy" "--play-and-exit" "--quiet"))
+    ("gst-play-1.0" . ("--quiet"))
+    ("gst-launch-1.0" . ("playbin" "uri=file://")))
+  "List of MP3-capable audio players with their command line options in order of preference.
+Each entry is a cons cell where the car is the executable name
+and the cdr is a list of command line arguments.
+The first available player from this list will be used automatically."
+  :type '(alist :key-type string :value-type (repeat string))
+  :group 'elevenlabs-tts)
+
 (defvar elevenlabs-tts-api-base-url "https://api.elevenlabs.io/v1"
   "Base URL for ElevenLabs API.")
 
@@ -191,6 +213,150 @@ Returns the selected directory, or nil if user wants default."
       (file-name-sans-extension (file-name-nondirectory buffer-file-name))
     "tts-audio"))
 
+(defun elevenlabs-tts--find-available-audio-player ()
+  "Find the first available audio player from the configured list.
+Returns a cons cell (PLAYER-PATH . ARGS) or nil if none found."
+  (let ((players elevenlabs-tts-audio-players)
+        (result nil))
+    (while (and players (not result))
+      (let* ((player (car players))
+             (player-name (car player))
+             (player-args (cdr player))
+             (player-path (executable-find player-name)))
+        (when player-path
+          (when elevenlabs-tts-debug
+            (message "Debug: Found audio player: %s" player-name))
+          (setq result (cons player-path player-args)))
+        (setq players (cdr players))))
+    result))
+
+(defun elevenlabs-tts--play-audio-file (filename)
+  "Play the audio file FILENAME using the best available player.
+Returns t if playback was initiated successfully, nil otherwise."
+  (let ((player-info (elevenlabs-tts--find-available-audio-player)))
+    (if player-info
+        (let* ((player-path (car player-info))
+               (player-args (cdr player-info))
+               (player-name (file-name-nondirectory player-path))
+               (expanded-filename (expand-file-name filename))
+               (command-args (append player-args (list expanded-filename))))
+          
+          (when elevenlabs-tts-debug
+            (message "Debug: Playing with %s: %s %s" 
+                     player-name player-path (mapconcat 'identity command-args " ")))
+          
+          ;; Special handling for gst-launch-1.0 which needs file:// URI
+          (when (string-equal player-name "gst-launch-1.0")
+            (setq command-args 
+                  (list "playbin" (format "uri=file://%s" expanded-filename))))
+          
+          (condition-case error
+              (progn
+                (message "🔊 Playing audio with %s..." player-name)
+                ;; Use call-process with full path to run the player and wait for it to finish
+                ;; This ensures non-GUI players exit properly
+                (let ((exit-code (apply 'call-process player-path nil nil nil command-args)))
+                  (when elevenlabs-tts-debug
+                    (message "Debug: Player %s exited with code: %d" player-name exit-code))
+                  (if (= exit-code 0)
+                      (progn
+                        (message "✅ Playback completed")
+                        t)
+                    (progn
+                      (message "⚠️  Player exited with code %d" exit-code)
+                      t)))) ; Still return t as playback was attempted
+            (error
+             (message "❌ Error playing audio: %s" (error-message-string error))
+             nil)))
+      (progn
+        (message "❌ No audio player available. Install one of: %s" 
+                 (mapconcat (lambda (p) (car p)) elevenlabs-tts-audio-players ", "))
+        nil))))
+
+(defun elevenlabs-tts--is-valid-mp3-file (filename)
+  "Check if FILENAME is a valid MP3 file by examining magic bytes.
+Returns t if valid, nil otherwise."
+  (when (and (file-exists-p filename) (> (nth 7 (file-attributes filename)) 10))
+    (with-temp-buffer
+      (set-buffer-multibyte nil)  ; Handle binary data
+      (insert-file-contents-literally filename nil 0 10)  ; Read first 10 bytes
+      (goto-char (point-min))
+      ;; Check for MP3 magic bytes: ID3 tag ("ID3") or MP3 frame sync (0xFF 0xFB/0xFA/0xF3/0xF2)
+      (or (looking-at "ID3")                              ; ID3v2 tag
+          (and (= (following-char) #xFF)                   ; MP3 frame sync byte 1
+               (progn (forward-char 1)
+                      (memq (following-char) '(#xFB #xFA #xF3 #xF2))))))))  ; MP3 frame sync byte 2 variants
+
+(defun elevenlabs-tts--parse-api-error-response (filename)
+  "Try to parse FILENAME as a JSON error response from ElevenLabs API.
+Returns error message string if it's a JSON error, nil if it's not JSON."
+  (when (file-exists-p filename)
+    (condition-case nil
+        (with-temp-buffer
+          (insert-file-contents filename)
+          (goto-char (point-min))
+          ;; Check if content looks like JSON (starts with { or [)
+          (when (looking-at "[\\s-]*[{[]")
+            (let* ((json-data (json-read))
+                   (detail (cdr (assq 'detail json-data)))
+                   (message (cdr (assq 'message json-data)))
+                   (error-msg (cdr (assq 'error json-data))))
+              ;; ElevenLabs returns different error formats
+              (cond
+               (detail detail)
+               (message message) 
+               (error-msg error-msg)
+               (t "Unknown API error")))))
+      (error nil))))
+
+(defun elevenlabs-tts--extract-http-status (curl-output)
+  "Extract HTTP status code from curl output containing HTTP_CODE: prefix.
+Returns status code as integer or nil if not found."
+  (when (and curl-output (string-match "HTTP_CODE:\\([0-9]+\\)" curl-output))
+    (string-to-number (match-string 1 curl-output))))
+
+(defun elevenlabs-tts--format-api-error-message (status-code error-detail)
+  "Format a user-friendly error message based on STATUS-CODE and ERROR-DETAIL.
+ERROR-DETAIL can be a string from API response or nil."
+  (let ((base-message
+         (cond
+          ((= status-code 400) "Bad Request")
+          ((= status-code 401) "Unauthorized (check your API key)")
+          ((= status-code 402) "Payment Required (insufficient credits)")
+          ((= status-code 403) "Forbidden (API key may lack permissions)")
+          ((= status-code 404) "Not Found (voice or endpoint not found)")
+          ((= status-code 422) "Unprocessable Entity (invalid request data)")
+          ((= status-code 429) "Too Many Requests (rate limit exceeded)")
+          ((= status-code 500) "Internal Server Error")
+          ((= status-code 503) "Service Unavailable")
+          ((>= status-code 400) (format "HTTP Error %d" status-code))
+          (t "API Error"))))
+    (if error-detail
+        (format "%s: %s" base-message error-detail)
+      base-message)))
+
+(defun elevenlabs-tts--prompt-for-playback (filename)
+  "Prompt user whether to play the audio file FILENAME.
+Returns t if user wants to play, nil otherwise.
+Defaults to 'N' (no), but 'y' + enter plays the audio."
+  (when elevenlabs-tts-enable-playback
+    (let ((available-player (elevenlabs-tts--find-available-audio-player)))
+      (if available-player
+          (let* ((player-path (car available-player))
+                 (player-name (file-name-nondirectory player-path))
+                 (prompt (format "🎵 Play audio with %s? [y/N]: " player-name))
+                 (response (read-string prompt)))
+            (cond
+             ((string-match-p "^[yY]" response)
+              (elevenlabs-tts--play-audio-file filename)
+              t)
+             (t 
+              (message "Audio saved to: %s" filename)
+              nil)))
+        (progn
+          (message "Audio saved to: %s (no player available for playback)" filename)
+          nil)))))
+
 (defun elevenlabs-tts--make-api-request-sync (voice-id text filename)
   "Make synchronous API request to ElevenLabs with VOICE-ID and TEXT.
 Save result to FILENAME and return success status."
@@ -205,8 +371,8 @@ Save result to FILENAME and return success status."
 
 (defun elevenlabs-tts--make-curl-request (voice-id text filename api-key)
   "Make API request using curl for better UTF-8 handling.
-  Uses temporary files for API key and data to avoid command-line exposure.
-  Properly escapes filenames to prevent shell injection."
+Uses temporary files for API key and data to avoid command-line exposure.
+Properly escapes filenames to prevent shell injection."
   (let* ((url (format "%s/text-to-speech/%s" elevenlabs-tts-api-base-url voice-id))
          (json-payload (json-encode
                         `((text . ,text)
@@ -279,16 +445,43 @@ Save result to FILENAME and return success status."
             
             (cond
              ((= exit-code 0)
-              (if (and (file-exists-p expanded-filename) (> (nth 7 (file-attributes expanded-filename)) 100))
-                  (progn
-                    (message "✅ Audio successfully saved to: %s" filename)
-                    t)
-                (progn
-                  (message "❌ No audio data received from API%s" 
-                           (if elevenlabs-tts-debug
-                               (format ". Curl output: %s" curl-output)
-                             " (enable elevenlabs-tts-debug for details)"))
-                  nil)))
+              ;; Curl succeeded, now check HTTP status and validate response
+              (let ((http-status (elevenlabs-tts--extract-http-status curl-output)))
+                (if (and http-status (>= http-status 400))
+                    ;; HTTP error - try to extract API error message
+                    (let ((api-error (elevenlabs-tts--parse-api-error-response expanded-filename)))
+                      (when elevenlabs-tts-debug
+                        (message "Debug: HTTP error %d, API error: %s" http-status api-error))
+                      ;; Clean up the invalid file
+                      (when (file-exists-p expanded-filename)
+                        (delete-file expanded-filename))
+                      (message "❌ %s" (elevenlabs-tts--format-api-error-message http-status api-error))
+                      nil)
+                  ;; HTTP success (or status not detected) - validate file content
+                  (if (and (file-exists-p expanded-filename) 
+                           (> (nth 7 (file-attributes expanded-filename)) 10))
+                      ;; Check if file is valid MP3 or contains error response
+                      (if (elevenlabs-tts--is-valid-mp3-file expanded-filename)
+                          (progn
+                            (message "✅ Audio successfully saved to: %s" filename)
+                            ;; Prompt for playback after successful generation
+                            (elevenlabs-tts--prompt-for-playback filename)
+                            t)
+                        ;; File exists but isn't valid MP3 - might be JSON error
+                        (let ((api-error (elevenlabs-tts--parse-api-error-response expanded-filename)))
+                          (when (file-exists-p expanded-filename)
+                            (delete-file expanded-filename))
+                          (if api-error
+                              (message "❌ API Error: %s" api-error)
+                            (message "❌ Received invalid audio data (not MP3 format)"))
+                          nil))
+                    ;; File doesn't exist or is too small
+                    (progn
+                      (message "❌ No audio data received from API%s" 
+                               (if elevenlabs-tts-debug
+                                   (format ". Curl output: %s" curl-output)
+                                 " (enable elevenlabs-tts-debug for details)"))
+                      nil)))))
              (t
               (let ((error-msg (cond
                                ((= exit-code 1) "Unsupported protocol or curl build issue")
@@ -330,33 +523,46 @@ Save result to FILENAME and return success status."
               (voice_settings . ,elevenlabs-tts-default-settings)))
            'utf-8))
          (response-buffer))
-      
-      (condition-case error-data
-          (progn
-            (message "Making request to ElevenLabs API...")
-            (setq response-buffer (url-retrieve-synchronously url t nil 30))
-            
-            (if response-buffer
-                (with-current-buffer response-buffer
-                  ;; Make sure we're at the beginning of the buffer
-                  (goto-char (point-min))
-                  (let ((first-line (buffer-substring-no-properties (point-min) (line-end-position))))
-                    (if (string-match "HTTP/[0-9]+\\.[0-9]+ \\([0-9]+\\)" first-line)
-                        (let ((status-code (string-to-number (match-string 1 first-line))))
-                          (cond
+    
+    (condition-case error-data
+        (progn
+          (message "Making request to ElevenLabs API...")
+          (setq response-buffer (url-retrieve-synchronously url t nil 30))
+          
+          (if response-buffer
+              (with-current-buffer response-buffer
+                ;; Make sure we're at the beginning of the buffer
+                (goto-char (point-min))
+                (let ((first-line (buffer-substring-no-properties (point-min) (line-end-position))))
+                  (if (string-match "HTTP/[0-9]+\\.[0-9]+ \\([0-9]+\\)" first-line)
+                      (let ((status-code (string-to-number (match-string 1 first-line))))
+                        (cond
                          ((= status-code 200)
                           ;; Find and extract the body
                           (if (search-forward "\n\n" nil t)
                               (let ((body-start (point))
                                     (body-size (- (point-max) (point))))
-                                (if (> body-size 0)
+                                (if (> body-size 10)
                                     (progn
-                                      ;; Save the audio data
+                                      ;; Save the response data
                                       (let ((coding-system-for-write 'binary))
                                         (write-region body-start (point-max) filename))
                                       (kill-buffer response-buffer)
-                                      (message "✅ Audio successfully saved to: %s" filename)
-                                      t) ; Return success
+                                      ;; Validate the saved file
+                                      (if (elevenlabs-tts--is-valid-mp3-file filename)
+                                          (progn
+                                            (message "✅ Audio successfully saved to: %s" filename)
+                                            ;; Prompt for playback after successful generation
+                                            (elevenlabs-tts--prompt-for-playback filename)
+                                            t) ; Return success
+                                        ;; File isn't valid MP3 - check for API error
+                                        (let ((api-error (elevenlabs-tts--parse-api-error-response filename)))
+                                          (when (file-exists-p filename)
+                                            (delete-file filename))
+                                          (if api-error
+                                              (message "❌ API Error: %s" api-error)
+                                            (message "❌ Received invalid audio data (not MP3 format)"))
+                                          nil)))
                                   (progn
                                     (kill-buffer response-buffer)
                                     (message "❌ No audio data received from API")
@@ -365,33 +571,38 @@ Save result to FILENAME and return success status."
                               (kill-buffer response-buffer)
                               (message "❌ Could not find response body")
                               nil)))
-                         ((= status-code 401)
-                          (kill-buffer response-buffer)
-                          (message "❌ HTTP 401 - Unauthorized (check API key)")
-                          nil)
-                         ((= status-code 422)
-                          (kill-buffer response-buffer)
-                          (message "❌ HTTP 422 - Invalid request format")
-                          nil)
+                         ((>= status-code 400)
+                          ;; HTTP error - try to extract error message from response body
+                          (let ((api-error nil))
+                            (if (search-forward "\n\n" nil t)
+                                (let ((body-start (point))
+                                      (temp-file (make-temp-file "tts-error-")))
+                                  ;; Save error response to temp file for parsing
+                                  (write-region body-start (point-max) temp-file)
+                                  (setq api-error (elevenlabs-tts--parse-api-error-response temp-file))
+                                  (when (file-exists-p temp-file)
+                                    (delete-file temp-file))))
+                            (kill-buffer response-buffer)
+                            (message "❌ %s" (elevenlabs-tts--format-api-error-message status-code api-error))
+                            nil))
                          (t
                           (kill-buffer response-buffer)
                           (message "❌ HTTP Error %d" status-code)
                           nil)))
-                    (progn
-                      (kill-buffer response-buffer)
-                      (message "❌ Invalid HTTP response format")
-                      nil))))
-              (progn
-                (message "❌ Failed to retrieve response from API")
-                nil)))
-        (error
-         (when response-buffer (kill-buffer response-buffer))
-         (message "❌ API request error: %s" (error-message-string error-data))
-         nil))))
-
+                  (progn
+                    (kill-buffer response-buffer)
+                    (message "❌ Invalid HTTP response format")
+                    nil))))
+            (progn
+              (message "❌ Failed to retrieve response from API")
+              nil)))
+      (error
+       (when response-buffer (kill-buffer response-buffer))
+       (message "❌ API request error: %s" (error-message-string error-data))
+       nil))))
 
 (defun elevenlabs-tts--select-voice (gender)
-  "Select a voice based on GENDER (\='male or \='female)."
+  "Select a voice based on GENDER (\\='male or \\='female)."
   (let* ((voice-list (if (eq gender 'male)
                         elevenlabs-tts-male-voices
                       elevenlabs-tts-female-voices))
@@ -439,7 +650,7 @@ Interactive workflow: select output directory, select voice, confirm/edit output
 ;;;###autoload
 (defun elevenlabs-tts-speak-selection-quick (gender)
   "Quick text-to-speech with predetermined GENDER voice.
-GENDER should be \='male or \='female.
+GENDER should be \\='male or \\='female.
 Uses the current buffer's output directory setting."
   (interactive 
    (list (intern (completing-read "Select gender: " '("male" "female") nil t))))
@@ -460,7 +671,6 @@ Uses the current buffer's output directory setting."
       
       ;; Make synchronous API call
       (elevenlabs-tts--make-api-request-sync voice-id text filename))))
-
 
 ;; Main keybinding
 ;;;###autoload
@@ -507,6 +717,34 @@ Prompts for a new directory. Enter empty string to reset to default."
   (interactive)
   (setq elevenlabs-tts-debug (not elevenlabs-tts-debug))
   (message "ElevenLabs TTS debug mode: %s" (if elevenlabs-tts-debug "enabled" "disabled")))
+
+;;;###autoload
+(defun elevenlabs-tts-toggle-playback ()
+  "Toggle automatic playback prompt after TTS generation."
+  (interactive)
+  (setq elevenlabs-tts-enable-playback (not elevenlabs-tts-enable-playback))
+  (message "ElevenLabs TTS playback prompt: %s" (if elevenlabs-tts-enable-playback "enabled" "disabled")))
+
+;;;###autoload
+(defun elevenlabs-tts-test-audio-players ()
+  "Test which audio players are available on the system."
+  (interactive)
+  (message "Testing available audio players...")
+  (let ((available-players '())
+        (unavailable-players '()))
+    (dolist (player elevenlabs-tts-audio-players)
+      (let ((player-name (car player)))
+        (if (executable-find player-name)
+            (push player-name available-players)
+          (push player-name unavailable-players))))
+    
+    (if available-players
+        (progn
+          (message "Available audio players: %s" (mapconcat 'identity (reverse available-players) ", "))
+          (when unavailable-players
+            (message "Unavailable players: %s" (mapconcat 'identity (reverse unavailable-players) ", "))))
+      (message "No audio players available! Install one of: %s" 
+               (mapconcat (lambda (p) (car p)) elevenlabs-tts-audio-players ", ")))))
 
 (provide 'elevenlabs-tts)
 

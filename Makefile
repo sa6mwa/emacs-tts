@@ -19,7 +19,7 @@ YELLOW = \033[1;33m
 RED = \033[0;31m
 NC = \033[0m # No Color
 
-.PHONY: all test test-unit test-integration test-manual install clean check-api-key setup help lint info
+.PHONY: all test test-unit test-integration test-playback test-manual install clean check-api-key setup help lint info
 
 # Default target
 all: help
@@ -34,8 +34,9 @@ help:
 	@echo "  $(YELLOW)setup$(NC)         - Setup configuration directory and API key file template"
 	@echo "  $(YELLOW)test$(NC)          - Run all tests (unit + integration)"
 	@echo "  $(YELLOW)test-unit$(NC)     - Run unit tests only"
+	@echo "  $(YELLOW)test-playback$(NC) - Run playback-specific tests only"
 	@echo "  $(YELLOW)test-integration$(NC) - Run integration tests (requires API key)"
-	@echo "  $(YELLOW)test-manual$(NC)   - Generate a test audio file (requires API key)"
+	@echo "  $(YELLOW)test-manual$(NC)   - Generate and play a test audio file (requires API key)"
 	@echo "  $(YELLOW)check-api-key$(NC) - Check if API key is configured"
 	@echo "  $(YELLOW)lint$(NC)          - Lint Emacs Lisp code"
 	@echo "  $(YELLOW)info$(NC)          - Show package information"
@@ -99,35 +100,31 @@ check-api-key:
 	fi
 
 # Run all tests
-test: test-unit test-integration
+test:
+	@./run-tests.sh all
 
 # Run unit tests only
 test-unit:
-	@echo "$(GREEN)Running unit tests...$(NC)"
-	@$(EMACS) -batch -l $(PACKAGE_FILE) -l $(TEST_FILE) \
-		--eval "(ert-run-tests-batch-and-exit \"^test-elevenlabs-tts-[^i]\")" \
-		2>&1 | sed 's/^/  /' || true
-	@echo "$(GREEN)Unit tests completed!$(NC)"
+	@./run-tests.sh unit
 
 # Run integration tests (requires API key)
-test-integration: check-api-key
-	@echo "$(GREEN)Running integration tests...$(NC)"
-	@echo "$(YELLOW)This will make actual API calls to ElevenLabs$(NC)"
-	@$(EMACS) -batch -l $(PACKAGE_FILE) -l $(TEST_FILE) \
-		--eval "(ert-run-tests-batch-and-exit \"test-elevenlabs-tts-integration\")" \
-		2>&1 | sed 's/^/  /' || true
-	@echo "$(GREEN)Integration tests completed!$(NC)"
+test-integration:
+	@./run-tests.sh integration
 
-# Manual test - generate a test audio file
+# Run playback-specific tests
+test-playback:
+	@./run-tests.sh playback
+
+# Manual test - generate a test audio file and play it automatically
 test-manual: check-api-key clean
 	@echo "$(GREEN)Running manual TTS test...$(NC)"
-	@echo "$(YELLOW)Generating audio with Rachel voice...$(NC)"
+	@echo "$(YELLOW)Generating audio with Rachel voice and auto-playing...$(NC)"
 	@$(EMACS) -batch -l $(PACKAGE_FILE) \
-		--eval '(let ((voice-id (elevenlabs-tts--get-voice-id "Rachel")) (test-phrase "Hello, this is a test of the ElevenLabs text to speech system. Testing one, two, three.") (output-file "$(TEST_OUTPUT)")) (if (elevenlabs-tts--make-api-request-sync voice-id test-phrase output-file) (progn (message "✅ Audio successfully generated: %s" output-file) (message "File size: %d bytes" (nth 7 (file-attributes output-file)))) (message "❌ Audio generation failed")))' \
-		2>&1 | grep -E "(✅|❌|Audio|File size|Making request)" || true
+		--eval '(let ((voice-id (elevenlabs-tts--get-voice-id "Rachel")) (test-phrase "Hello, this is a test of the ElevenLabs text to speech system. Testing one, two, three.") (output-file "$(TEST_OUTPUT)")) (setq elevenlabs-tts-enable-playback t) (cl-letf (((symbol-function (quote read-string)) (lambda (prompt) "y"))) (if (elevenlabs-tts--make-api-request-sync voice-id test-phrase output-file) (progn (message "✅ Audio successfully generated: %s" output-file) (message "File size: %d bytes" (nth 7 (file-attributes output-file)))) (message "❌ Audio generation failed"))))' \\
+		2>&1 | grep -E "(✅|❌|Audio|File size|Making request|🔊|Playing)" || true
 	@if [ -f "$(TEST_OUTPUT)" ]; then \
-		echo "$(GREEN)✅ Test audio file created: $(TEST_OUTPUT)$(NC)"; \
-		echo "$(YELLOW)You can play this file to verify TTS functionality$(NC)"; \
+		echo "$(GREEN)✅ Test audio file created and played: $(TEST_OUTPUT)$(NC)"; \
+		echo "$(YELLOW)Audio playback should have completed automatically$(NC)"; \
 	else \
 		echo "$(RED)❌ Test audio file was not created$(NC)"; \
 	fi
