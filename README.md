@@ -6,7 +6,7 @@ An Emacs package that integrates with ElevenLabs' text-to-speech API to convert 
 
 - Convert selected text to speech using ElevenLabs' premium voices
 - Support for both male and female voices
-- **Per-buffer output directory**: Each buffer can have its own custom output directory
+- Per-buffer output directory: Each buffer can have its own custom output directory
 - Smart filename generation with voice names (e.g., `article-0001-rachel.mp3`, `article-0002-josh.mp3`)
 - Global sequential numbering across all voices (0001, 0002, 0003...)
 - Supports up to 9,999 files with 4-digit numbering
